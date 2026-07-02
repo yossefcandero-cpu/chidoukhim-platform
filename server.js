@@ -365,4 +365,45 @@ const server = http.createServer((req, res) => {
 });
 
 // Crée (ou promeut) automatiquement le compte administrateur au démarrage,
-// à p
+// à partir de ADMIN_EMAIL / ADMIN_PASSWORD (voir .env.example). Nécessaire
+// car les hébergeurs gratuits (Render, etc.) ne permettent pas toujours de
+// lancer `npm run seed` séparément après le déploiement.
+function ensureAdmin() {
+  const email = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD || "";
+  if (!email || !password) return;
+  withDb((db) => {
+    let account = db.users.find((u) => u.email === email);
+    if (account) {
+      if (account.role !== "admin") {
+        account.role = "admin";
+        account.status = "valide";
+        account.emailVerified = true;
+        account.phoneVerified = true;
+        account.passwordHash = hashPassword(password);
+        console.log(`Compte existant promu administrateur : ${email}`);
+      }
+    } else {
+      db.users.push({
+        id: uid("user"),
+        role: "admin",
+        prenom: "Administrateur",
+        nom: "Chidoukhim",
+        sexe: "H",
+        email,
+        telephone: "",
+        passwordHash: hashPassword(password),
+        status: "valide",
+        emailVerified: true,
+        phoneVerified: true,
+        createdAt: new Date().toISOString(),
+      });
+      console.log(`Compte administrateur créé automatiquement : ${email}`);
+    }
+  });
+}
+ensureAdmin();
+
+server.listen(PORT, () => {
+  console.log(`Chidoukhim — serveur démarré sur http://localhost:${PORT}`);
+});
