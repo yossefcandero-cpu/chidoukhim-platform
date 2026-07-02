@@ -1,0 +1,11 @@
+{
+  "name": "chidoukhim-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plateforme de Chidoukhim assistee par IA - application Node.js autonome (aucune dependance externe).",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node scripts/seed.js"
+  },
+  "engines": { "node": ">=18" }
+}
