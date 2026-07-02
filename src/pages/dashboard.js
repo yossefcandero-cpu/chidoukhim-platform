@@ -59,33 +59,39 @@ function dashboardPage(user) {
       }
     }
     return `<div class="proposal-card fade-up">
-      <div>
-        <h3 style="margin-bottom:4px">Proposition de compatibilité</h3>
-        <div class="proposal-meta">${esc(teaser(otherProfile))}</div>
-        <div class="proposal-meta">Score de compatibilité estimé : <strong>${pr.score}%</strong></div>
+      <div style="display:flex;gap:16px;align-items:center">
+        <div class="card-icon" style="margin-bottom:0">✦</div>
+        <div>
+          <h3 style="margin-bottom:4px">Proposition de compatibilité</h3>
+          <div class="proposal-meta">${esc(teaser(otherProfile))}</div>
+          <div class="proposal-meta">Score de compatibilité estimé : <strong style="color:var(--gold-strong)">${pr.score}%</strong></div>
+        </div>
       </div>
       ${actions}
     </div>`;
-  }).join("") || `<div class="empty-state">Aucune proposition pour le moment. Dès qu'une compatibilité sérieuse sera identifiée, elle apparaîtra ici.</div>`;
+  }).join("") || `<div class="empty-state"><div class="ei">✦</div>Aucune proposition pour le moment. Dès qu'une compatibilité sérieuse sera identifiée, elle apparaîtra ici.</div>`;
 
   const body = `
   <div class="dash-wrap">
-    <div class="status-banner fade-up">
-      <span class="status-pill status-${esc(user.status)}">${esc(label)}</span>
-      <h2 style="margin-top:14px">${esc(label)}</h2>
-      <p>${esc(desc)}</p>
+    <div class="status-banner fade-up" style="display:flex;gap:22px;align-items:center;flex-wrap:wrap">
+      <div class="card-icon" style="width:52px;height:52px;font-size:1.5rem;margin-bottom:0;flex:none">${user.status === "valide" ? "✓" : user.status === "refuse" ? "✕" : "⏳"}</div>
+      <div style="flex:1;min-width:220px">
+        <span class="status-pill status-${esc(user.status)}">${esc(label)}</span>
+        <h2 style="margin-top:12px">${esc(label)}</h2>
+        <p style="margin-bottom:0">${esc(desc)}</p>
+      </div>
       ${needsOnboarding ? `<a href="/onboarding/verification" class="btn btn-primary">Terminer la vérification</a>` : ""}
       ${!needsOnboarding && !profile ? `<a href="/onboarding/documents" class="btn btn-primary">Compléter mon dossier</a>` : ""}
     </div>
 
-    <div class="section-title-row"><h3>Propositions de compatibilité</h3></div>
+    <div class="section-title-row"><h3 style="margin:0">Propositions de compatibilité</h3></div>
     ${propRows}
   </div>
   <script>
   async function reagir(id, reponse) {
     const res = await fetch('/api/propositions/' + id + '/reagir', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reponse}) });
     const json = await res.json();
-    if (json.ok) window.location.reload(); else alert(json.error || 'Erreur');
+    if (json.ok) window.location.reload(); else toast(json.error || 'Erreur', 'error');
   }
   </script>`;
   return layout({ title: "Mon espace", body, user, active: "dashboard", noindex: true });

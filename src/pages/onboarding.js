@@ -7,16 +7,20 @@ const { required, clampStr } = require("../validators");
 const fs = require("fs");
 const path = require("path");
 
+const ONBOARDING_STEPS = [
+  { label: "Vérification", icon: "✉" },
+  { label: "Documents", icon: "🪪" },
+  { label: "Mon profil", icon: "◎" },
+  { label: "Recherche", icon: "♥" },
+];
+
 function stepper(current) {
-  const steps = ["Vérification", "Documents", "Mon profil", "Profil recherché"];
-  const dots = steps
-    .map((_, i) => {
-      const n = i + 1;
-      const cls = n < current ? "dot done" : n === current ? "dot current" : "dot";
-      return `<div class="${cls}"></div>`;
-    })
-    .join("");
-  return `<div class="step-label">Étape ${current} sur 4 — ${esc(steps[current - 1])}</div><div class="stepper">${dots}</div>`;
+  const items = ONBOARDING_STEPS.map((s, i) => {
+    const n = i + 1;
+    const cls = n < current ? "st done" : n === current ? "st current" : "st";
+    return `<div class="${cls}"><div class="st-circle">${n < current ? "✓" : n}</div><div class="st-label">${esc(s.label)}</div></div>`;
+  }).join("");
+  return `<div class="step-progress-label">Étape ${current} sur ${ONBOARDING_STEPS.length}</div><div class="step-track">${items}</div>`;
 }
 
 // ---------- Étape 1 : vérification ----------
@@ -27,39 +31,45 @@ function verificationPage(user) {
     <h2>Vérifions votre identité de contact</h2>
     <p class="muted">Pour limiter les faux profils, nous vérifions votre e-mail et votre téléphone avant l'accès au questionnaire.</p>
 
-    <div class="card" style="margin-bottom:18px">
-      <h3>E-mail : ${esc(user.email)} ${user.emailVerified ? '<span class="status-pill status-valide">Vérifié</span>' : '<span class="status-pill status-en_attente_validation">Non vérifié</span>'}</h3>
-      ${
-        user.emailVerified
-          ? ""
-          : `<div id="email-verif">
-              <button class="btn btn-outline btn-sm" id="btn-send-email" type="button">Envoyer le code par e-mail</button>
-              <div id="email-code-zone" style="display:none;margin-top:14px">
-                <div class="field"><label>Code reçu par e-mail</label><input type="text" id="email-code" maxlength="6" /></div>
-                <button class="btn btn-primary btn-sm" id="btn-check-email" type="button">Valider</button>
-              </div>
-              <div id="email-demo-note" class="muted" style="margin-top:8px"></div>
-            </div>`
-      }
+    <div class="card" style="margin-bottom:14px;display:flex;gap:14px;align-items:flex-start">
+      <div class="card-icon" style="margin-bottom:0">✉</div>
+      <div style="flex:1;min-width:0">
+        <h3 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${esc(user.email)} ${user.emailVerified ? '<span class="status-pill status-valide">Vérifié</span>' : '<span class="status-pill status-en_attente_validation">Non vérifié</span>'}</h3>
+        ${
+          user.emailVerified
+            ? '<p class="muted" style="margin:0">Adresse e-mail confirmée.</p>'
+            : `<div id="email-verif">
+                <button class="btn btn-outline btn-sm" id="btn-send-email" type="button">Envoyer le code par e-mail</button>
+                <div id="email-code-zone" style="display:none;margin-top:14px">
+                  <div class="field"><label>Code reçu par e-mail</label><input type="text" id="email-code" maxlength="6" /></div>
+                  <button class="btn btn-primary btn-sm" id="btn-check-email" type="button">Valider</button>
+                </div>
+                <div id="email-demo-note" class="muted" style="margin-top:8px"></div>
+              </div>`
+        }
+      </div>
     </div>
 
-    <div class="card" style="margin-bottom:18px">
-      <h3>Téléphone : ${esc(user.telephone)} ${user.phoneVerified ? '<span class="status-pill status-valide">Vérifié</span>' : '<span class="status-pill status-en_attente_validation">Non vérifié</span>'}</h3>
-      ${
-        user.phoneVerified
-          ? ""
-          : `<div id="phone-verif">
-              <button class="btn btn-outline btn-sm" id="btn-send-phone" type="button">Envoyer le code par SMS</button>
-              <div id="phone-code-zone" style="display:none;margin-top:14px">
-                <div class="field"><label>Code reçu par SMS</label><input type="text" id="phone-code" maxlength="6" /></div>
-                <button class="btn btn-primary btn-sm" id="btn-check-phone" type="button">Valider</button>
-              </div>
-              <div id="phone-demo-note" class="muted" style="margin-top:8px"></div>
-            </div>`
-      }
+    <div class="card" style="margin-bottom:18px;display:flex;gap:14px;align-items:flex-start">
+      <div class="card-icon" style="margin-bottom:0">☎</div>
+      <div style="flex:1;min-width:0">
+        <h3 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${esc(user.telephone)} ${user.phoneVerified ? '<span class="status-pill status-valide">Vérifié</span>' : '<span class="status-pill status-en_attente_validation">Non vérifié</span>'}</h3>
+        ${
+          user.phoneVerified
+            ? '<p class="muted" style="margin:0">Numéro de téléphone confirmé.</p>'
+            : `<div id="phone-verif">
+                <button class="btn btn-outline btn-sm" id="btn-send-phone" type="button">Envoyer le code par SMS</button>
+                <div id="phone-code-zone" style="display:none;margin-top:14px">
+                  <div class="field"><label>Code reçu par SMS</label><input type="text" id="phone-code" maxlength="6" /></div>
+                  <button class="btn btn-primary btn-sm" id="btn-check-phone" type="button">Valider</button>
+                </div>
+                <div id="phone-demo-note" class="muted" style="margin-top:8px"></div>
+              </div>`
+        }
+      </div>
     </div>
 
-    <a href="/onboarding/documents" class="btn btn-primary btn-block" ${user.emailVerified && user.phoneVerified ? "" : "style=\"pointer-events:none;opacity:.5\""}>Continuer</a>
+    <a href="/onboarding/documents" class="btn btn-primary btn-block btn-lg" ${user.emailVerified && user.phoneVerified ? "" : "style=\"pointer-events:none;opacity:.5\""}>Continuer</a>
   </div>
   <script>
   async function sendCode(canal, btnId, zoneId, noteId) {
@@ -77,7 +87,7 @@ function verificationPage(user) {
     const code = document.getElementById(inputId).value.trim();
     const res = await fetch('/api/onboarding/verifier-code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({canal, code}) });
     const json = await res.json();
-    if (json.ok) { window.location.reload(); } else { alert(json.error || 'Code invalide'); }
+    if (json.ok) { window.location.reload(); } else { toast(json.error || 'Code invalide', 'error'); }
   }
   const be = document.getElementById('btn-send-email'); if (be) be.onclick = () => sendCode('email','btn-send-email','email-code-zone','email-demo-note');
   const bp = document.getElementById('btn-send-phone'); if (bp) bp.onclick = () => sendCode('telephone','btn-send-phone','phone-code-zone','phone-demo-note');
@@ -142,6 +152,7 @@ function documentsPage(user, error) {
         <label>Pièce d'identité (carte d'identité, passeport)</label>
         <label class="file-drop">
           <input type="file" name="pieceIdentite" accept="image/*,.pdf" required />
+          <div class="fd-icon">🪪</div>
           <span>Cliquez pour sélectionner un fichier</span>
           <div class="fname"></div>
         </label>
@@ -150,11 +161,16 @@ function documentsPage(user, error) {
         <label>Selfie (visage bien visible, pour confirmer que vous correspondez au document)</label>
         <label class="file-drop">
           <input type="file" name="selfie" accept="image/*" required />
+          <div class="fd-icon">🤳</div>
           <span>Cliquez pour sélectionner un fichier</span>
           <div class="fname"></div>
         </label>
       </div>
-      <button type="submit" class="btn btn-primary btn-block">Continuer</button>
+      <div style="display:flex;gap:10px;align-items:flex-start;background:var(--brand-soft);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:22px">
+        <span style="color:var(--brand)">🔒</span>
+        <p class="muted tiny" style="margin:0">Ces documents sont chiffrés au stockage et visibles uniquement par l'administrateur — jamais publiés ni partagés.</p>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block btn-lg">Continuer</button>
     </form>
   </div>`;
   return layout({ title: "Documents d'identité", body, user, noindex: true });
@@ -223,7 +239,7 @@ function profilPage(user, profile, error) {
     <p class="muted">Soyez sincère et précis : c'est ce qui permettra à l'administrateur et à l'intelligence artificielle de trouver les meilleures compatibilités pour vous.</p>
     ${error ? `<div class="form-error">${esc(error)}</div>` : ""}
     <form class="js-form" data-endpoint="/api/onboarding/profil" data-redirect="/onboarding/recherche">
-      <h3>Informations générales</h3>
+      <h3><span class="sec-ic">◎</span>Informations générales</h3>
       <div class="field-row">
         <div class="field"><label>Date de naissance</label><input type="date" name="dateNaissance" value="${esc(p.dateNaissance)}" required /></div>
         <div class="field"><label>Taille (cm)</label><input type="number" name="taille" min="120" max="220" value="${esc(p.taille)}" required /></div>
@@ -242,7 +258,7 @@ function profilPage(user, profile, error) {
       </div>
       <div class="field"><label>Minhag</label><input type="text" name="minhag" value="${esc(p.minhag)}" /></div>
 
-      <h3>Parcours</h3>
+      <h3><span class="sec-ic">🎓</span>Parcours</h3>
       <div class="field-row">
         <div class="field"><label>Profession</label><input type="text" name="profession" value="${esc(p.profession)}" required /></div>
         <div class="field"><label>Études</label><input type="text" name="etudes" value="${esc(p.etudes)}" /></div>
@@ -253,7 +269,7 @@ function profilPage(user, profile, error) {
       </div>
       <div class="field"><label>Rav de référence</label><input type="text" name="ravReference" value="${esc(p.ravReference)}" /></div>
 
-      <h3>Situation familiale</h3>
+      <h3><span class="sec-ic">⌂</span>Situation familiale</h3>
       <div class="field-row">
         <div class="field"><label>Situation familiale</label>
           <select name="situationFamiliale" required>
@@ -275,7 +291,7 @@ function profilPage(user, profile, error) {
         </div>
       </div>
 
-      <h3>Personnalité</h3>
+      <h3><span class="sec-ic">✦</span>Personnalité</h3>
       <div class="field"><label>Décrivez votre personnalité</label><textarea name="personnalite" required>${esc(p.personnalite)}</textarea></div>
       <div class="field-row">
         <div class="field"><label>Vos qualités</label><textarea name="qualites">${esc(p.qualites)}</textarea></div>
@@ -285,7 +301,7 @@ function profilPage(user, profile, error) {
       <div class="field"><label>Objectifs de vie</label><textarea name="objectifsVie">${esc(p.objectifsVie)}</textarea></div>
       <div class="field"><label>Aspirations spirituelles</label><textarea name="aspirationsSpirituelles">${esc(p.aspirationsSpirituelles)}</textarea></div>
 
-      <h3>Questions ouvertes</h3>
+      <h3><span class="sec-ic">💬</span>Questions ouvertes</h3>
       <div class="field"><label>Parlez-nous de vous, de votre parcours, de ce qui vous définit</label><textarea name="questionOuverte1">${esc(p.questionOuverte1)}</textarea></div>
       <div class="field"><label>Qu'attendez-vous du mariage et de la vie de famille ?</label><textarea name="questionOuverte2">${esc(p.questionOuverte2)}</textarea></div>
 
@@ -331,6 +347,7 @@ function recherchePage(user, criteria, error) {
     <p class="muted">Ces informations aident l'IA et l'administrateur à cibler les compatibilités les plus pertinentes.</p>
     ${error ? `<div class="form-error">${esc(error)}</div>` : ""}
     <form class="js-form" data-endpoint="/api/onboarding/recherche" data-redirect="/onboarding/termine">
+      <h3><span class="sec-ic">◎</span>Critères principaux</h3>
       <div class="field-row">
         <div class="field"><label>Âge minimum</label><input type="number" name="ageMin" min="18" max="99" value="${esc(c.ageMin)}" required /></div>
         <div class="field"><label>Âge maximum</label><input type="number" name="ageMax" min="18" max="99" value="${esc(c.ageMax)}" required /></div>
@@ -357,11 +374,14 @@ function recherchePage(user, criteria, error) {
         <div class="field"><label>Études recherchées <span class="hint">optionnel</span></label><input type="text" name="etudes" value="${esc(c.etudes)}" /></div>
       </div>
       <div class="field"><label>Traits de caractère recherchés</label><textarea name="traitsRecherches">${esc(c.traitsRecherches)}</textarea></div>
-      <div class="field"><label>Critères indispensables <span class="hint">un critère par ligne</span></label><textarea name="criteresIndispensables" placeholder="Ex : souhaite fonder une famille&#10;Pratique religieuse quotidienne">${esc(c.criteresIndispensables)}</textarea></div>
-      <div class="field"><label>Critères secondaires <span class="hint">un critère par ligne</span></label><textarea name="criteresSecondaires">${esc(c.criteresSecondaires)}</textarea></div>
-      <div class="field"><label>Critères rédhibitoires <span class="hint">un critère par ligne — ce que vous ne pouvez absolument pas accepter</span></label><textarea name="criteresRedhibitoires">${esc(c.criteresRedhibitoires)}</textarea></div>
 
-      <button type="submit" class="btn btn-primary btn-block">Envoyer mon dossier pour validation</button>
+      <h3><span class="sec-ic">⚖</span>Critères de priorité</h3>
+      <p class="muted" style="margin-top:-8px">Ces trois niveaux aident l'intelligence artificielle à pondérer chaque compatibilité — un critère par ligne.</p>
+      <div class="field"><label>Critères indispensables <span class="hint">doivent absolument être réunis</span></label><textarea name="criteresIndispensables" placeholder="Ex : souhaite fonder une famille&#10;Pratique religieuse quotidienne">${esc(c.criteresIndispensables)}</textarea></div>
+      <div class="field"><label>Critères secondaires <span class="hint">appréciés, sans être déterminants</span></label><textarea name="criteresSecondaires">${esc(c.criteresSecondaires)}</textarea></div>
+      <div class="field"><label>Critères rédhibitoires <span class="hint">ce que vous ne pouvez absolument pas accepter</span></label><textarea name="criteresRedhibitoires">${esc(c.criteresRedhibitoires)}</textarea></div>
+
+      <button type="submit" class="btn btn-primary btn-block btn-lg">Envoyer mon dossier pour validation</button>
     </form>
   </div>`;
   return layout({ title: "Profil recherché", body, user, noindex: true });
@@ -396,11 +416,12 @@ function apiRecherche(user, body) {
 
 function terminePage(user) {
   const body = `
-  <div class="auth-wrap fade-up" style="max-width:520px;text-align:center">
-    <div class="card-icon" style="margin:0 auto 18px">✓</div>
+  <div class="auth-wrap pop-in" style="max-width:520px;text-align:center">
+    <div style="width:64px;height:64px;border-radius:50%;background:var(--success-soft);color:var(--success);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:1.6rem">✓</div>
+    <div class="eyebrow" style="justify-content:center">Dossier complet</div>
     <h2>Merci, votre dossier est complet</h2>
-    <p>Il est maintenant entre les mains de notre équipe. Vous serez averti par e-mail dès qu'il aura été examiné.</p>
-    <a href="/tableau-de-bord" class="btn btn-primary">Accéder à mon espace</a>
+    <p>Il est maintenant entre les mains de notre équipe et de notre moteur de compatibilité. Vous serez averti par e-mail dès qu'il aura été examiné.</p>
+    <a href="/tableau-de-bord" class="btn btn-primary btn-lg">Accéder à mon espace</a>
   </div>`;
   return layout({ title: "Dossier envoyé", body, user, noindex: true });
 }

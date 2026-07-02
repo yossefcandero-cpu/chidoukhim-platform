@@ -75,8 +75,8 @@ function landingPage(user) {
   </section>
 
   <div class="section" aria-label="espace partenaire" style="max-width:720px">
-    <div style="border:1px dashed var(--line);border-radius:14px;padding:14px 18px;text-align:center;color:#8a7f6d;font-size:0.75rem;text-transform:uppercase;letter-spacing:.08em">
-      Espace partenaire — emplacement publicitaire discret (Google AdSense ou équivalent)
+    <div style="border:1px solid var(--line-soft);background:var(--bg-soft);border-radius:var(--radius);padding:14px 18px;text-align:center;color:var(--muted-2);font-size:0.72rem;text-transform:uppercase;letter-spacing:.08em">
+      Espace partenaire — emplacement publicitaire discret
     </div>
   </div>
   `;

@@ -5,13 +5,36 @@ const { hashPassword, verifyPassword, createSession, setSessionCookie } = requir
 const { isEmail, isPhone, required } = require("../validators");
 const { notify } = require("../notify");
 
+function authFrame(inner) {
+  return `
+  <div class="section" style="padding-top:56px;padding-bottom:56px">
+    <div style="max-width:980px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;box-shadow:var(--shadow-lg)" class="auth-split">
+      <div style="background:linear-gradient(155deg,var(--brand-dark),var(--brand) 130%);color:#fff;padding:48px 40px;display:flex;flex-direction:column;justify-content:space-between" class="auth-side">
+        <div>
+          <span class="brand-mark" style="background:rgba(255,255,255,.12);color:#f0d9ab">שידוכים</span>
+          <h2 style="color:#fff;margin-top:22px">Une recherche confiée, jamais exposée.</h2>
+          <p style="color:rgba(255,255,255,.72)">Aucun profil public, aucune recherche libre. Chaque compatibilité est examinée par le Shadkhan avant toute mise en relation.</p>
+        </div>
+        <ul style="list-style:none;margin:0;padding:0;display:grid;gap:14px">
+          <li style="display:flex;gap:10px;align-items:center;color:rgba(255,255,255,.85);font-size:.88rem"><span style="color:#f0d9ab">✓</span> Identité vérifiée avant activation</li>
+          <li style="display:flex;gap:10px;align-items:center;color:rgba(255,255,255,.85);font-size:.88rem"><span style="color:#f0d9ab">✓</span> Photos strictement privées</li>
+          <li style="display:flex;gap:10px;align-items:center;color:rgba(255,255,255,.85);font-size:.88rem"><span style="color:#f0d9ab">✓</span> Décision humaine finale</li>
+        </ul>
+      </div>
+      <div style="padding:48px 40px" class="fade-up">
+        ${inner}
+      </div>
+    </div>
+  </div>
+  <style>@media (max-width:760px){ .auth-split{grid-template-columns:1fr !important} .auth-side{display:none !important} }</style>`;
+}
+
 function inscriptionPage(user, error) {
-  const body = `
-  <div class="auth-wrap fade-up">
+  const inner = `
     <div class="eyebrow">Nouveau dossier</div>
     <h2>Créer votre dossier</h2>
     <p class="muted">Gratuit. Votre dossier restera privé et ne sera examiné qu'après vérification de votre identité.</p>
-    ${error ? `<div class="form-error">${esc(error)}</div>` : ""}
+    ${error ? `<div class="form-error">⚠ ${esc(error)}</div>` : ""}
     <form class="js-form" data-endpoint="/api/inscription" data-redirect="/onboarding/verification">
       <div class="field-row">
         <div class="field"><label>Prénom</label><input type="text" name="prenom" required /></div>
@@ -30,27 +53,24 @@ function inscriptionPage(user, error) {
         <div class="field"><label>Mot de passe</label><input type="password" name="motDePasse" minlength="8" required /></div>
         <div class="field"><label>Confirmation</label><input type="password" name="motDePasseConfirmation" minlength="8" required /></div>
       </div>
-      <button type="submit" class="btn btn-primary btn-block">Créer mon dossier</button>
+      <button type="submit" class="btn btn-primary btn-block btn-lg">Créer mon dossier</button>
       <p class="muted" style="margin-top:16px;text-align:center">Déjà inscrit ? <a href="/connexion">Se connecter</a></p>
-    </form>
-  </div>`;
-  return layout({ title: "Créer un dossier", body, user, noindex: true });
+    </form>`;
+  return layout({ title: "Créer un dossier", body: authFrame(inner), user, noindex: true });
 }
 
 function connexionPage(user, error) {
-  const body = `
-  <div class="auth-wrap fade-up">
+  const inner = `
     <div class="eyebrow">Espace membre</div>
     <h2>Connexion</h2>
-    ${error ? `<div class="form-error">${esc(error)}</div>` : ""}
+    ${error ? `<div class="form-error">⚠ ${esc(error)}</div>` : ""}
     <form class="js-form" data-endpoint="/api/connexion">
       <div class="field"><label>Adresse e-mail</label><input type="email" name="email" required /></div>
       <div class="field"><label>Mot de passe</label><input type="password" name="motDePasse" required /></div>
-      <button type="submit" class="btn btn-primary btn-block">Se connecter</button>
+      <button type="submit" class="btn btn-primary btn-block btn-lg">Se connecter</button>
       <p class="muted" style="margin-top:16px;text-align:center">Pas encore de dossier ? <a href="/inscription">Créer un dossier</a></p>
-    </form>
-  </div>`;
-  return layout({ title: "Connexion", body, user, noindex: true });
+    </form>`;
+  return layout({ title: "Connexion", body: authFrame(inner), user, noindex: true });
 }
 
 function apiInscription(body) {

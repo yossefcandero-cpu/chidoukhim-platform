@@ -1,6 +1,47 @@
 (function () {
   "use strict";
 
+  // ---------- notifications discrètes (remplace window.alert) ----------
+  function ensureToastStack() {
+    let stack = document.getElementById("toast-stack");
+    if (!stack) {
+      stack = document.createElement("div");
+      stack.id = "toast-stack";
+      document.body.appendChild(stack);
+    }
+    return stack;
+  }
+  window.toast = function toast(message, type) {
+    if (!message) return;
+    const stack = ensureToastStack();
+    const el = document.createElement("div");
+    el.className = "toast" + (type === "error" ? " toast-error" : type === "success" ? " toast-success" : "");
+    el.textContent = message;
+    stack.appendChild(el);
+    setTimeout(() => {
+      el.classList.add("toast-out");
+      setTimeout(() => el.remove(), 260);
+    }, 3600);
+  };
+
+  // ---------- animation des anneaux de score de compatibilité ----------
+  function animateScoreRings() {
+    document.querySelectorAll(".score-ring svg").forEach((svg) => {
+      const circles = svg.querySelectorAll("circle");
+      const fg = circles[1];
+      if (!fg) return;
+      const target = fg.getAttribute("stroke-dashoffset");
+      const full = fg.getAttribute("stroke-dasharray");
+      fg.style.transition = "none";
+      fg.setAttribute("stroke-dashoffset", full);
+      requestAnimationFrame(() => {
+        fg.style.transition = "stroke-dashoffset 1s cubic-bezier(.2,.7,.2,1)";
+        requestAnimationFrame(() => fg.setAttribute("stroke-dashoffset", target));
+      });
+    });
+  }
+  document.addEventListener("DOMContentLoaded", animateScoreRings);
+
   function fileToDataUrl(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();

@@ -38,42 +38,64 @@ function adminDashboardPage(user) {
 
   const recentLogs = [...db.auditLogs].reverse().slice(0, 12);
 
-  const body = `
-  <div class="admin-wrap">
-    <h2>Tableau de bord</h2>
-    <div class="stat-grid">
-      <div class="stat-card"><div class="num">${candidats.length}</div><div class="label">Dossiers créés</div></div>
-      <div class="stat-card"><div class="num">${counts.en_attente_validation || 0}</div><div class="label">À valider</div></div>
-      <div class="stat-card"><div class="num">${counts.valide || 0}</div><div class="label">Validés</div></div>
-      <div class="stat-card"><div class="num">${hommes} / ${femmes}</div><div class="label">Hommes / Femmes</div></div>
-      <div class="stat-card"><div class="num">${matchs}</div><div class="label">Intérêts mutuels</div></div>
-    </div>
+  // ---- Analyse IA agrégée ----
+  const scores = propositions.map((p) => p.score).filter((s) => typeof s === "number");
+  const avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+  const highScore = scores.filter((s) => s >= 75).length;
+  const mutualRate = propositions.length ? Math.round((matchs / propositions.length) * 100) : 0;
+  const validesPretsAuMatching = candidats.filter((u) => u.status === "valide").length;
 
-    <div class="detail-grid">
-      <div>
-        <div class="section-title-row"><h3>Dossiers à traiter en priorité</h3><a href="/admin/profils?statut=en_attente_validation">Voir tout</a></div>
-        <table class="data-table">
-          <thead><tr><th>Prénom</th><th>Âge</th><th>Ville</th><th>Statut</th><th>Créé le</th><th></th></tr></thead>
-          <tbody>
-          ${candidats.filter(u => u.status === "en_attente_validation").slice(0,8).map((u) => {
-            const p = db.profiles.find((pr) => pr.userId === u.id);
-            return `<tr>
-              <td>${esc(u.prenom)}</td>
-              <td>${p ? (age(p.dateNaissance) || "—") : "—"}</td>
-              <td>${p ? esc(p.ville) : "—"}</td>
-              <td>${statusBadge(u.status)}</td>
-              <td>${fmtDate(u.createdAt)}</td>
-              <td><a href="/admin/profils/${u.id}" class="btn btn-sm btn-outline">Ouvrir</a></td>
-            </tr>`;
-          }).join("") || `<tr><td colspan="6" class="muted">Aucun dossier en attente.</td></tr>`}
-          </tbody>
-        </table>
-      </div>
-      <div>
-        <h3>Journal des actions récentes</h3>
-        <div class="card">
-          ${recentLogs.map((l) => `<div class="note-item"><div>${esc(l.action)}</div><div class="meta">${fmtDate(l.createdAt)} · ${esc(l.details || "")}</div></div>`).join("") || '<p class="muted">Aucune action enregistrée.</p>'}
-        </div>
+  const statCards = [
+    { icon: "◎", num: candidats.length, label: "Dossiers créés" },
+    { icon: "⏳", num: counts.en_attente_validation || 0, label: "À valider" },
+    { icon: "✓", num: counts.valide || 0, label: "Validés" },
+    { icon: "⚥", num: `${hommes} / ${femmes}`, label: "Hommes / Femmes" },
+    { icon: "✦", num: matchs, label: "Intérêts mutuels" },
+  ];
+
+  const body = `
+  <div class="stat-grid fade-up">
+    ${statCards.map((s) => `<div class="stat-card"><div class="card-icon" style="margin-bottom:10px">${s.icon}</div><div class="num">${s.num}</div><div class="label">${esc(s.label)}</div></div>`).join("")}
+  </div>
+
+  <div class="ai-panel fade-up delay-1" style="margin-bottom:32px">
+    <span class="ai-badge">✦ Analyse IA</span>
+    <h3>Le moteur de compatibilité en un coup d'œil</h3>
+    <p>Synthèse des scores calculés par le moteur explicable sur l'ensemble des compatibilités proposées.</p>
+    <div class="ai-metric-grid">
+      <div class="ai-metric"><div class="num">${avgScore}%</div><div class="lbl">Score moyen</div></div>
+      <div class="ai-metric"><div class="num">${highScore}</div><div class="lbl">Compatibilités ≥ 75%</div></div>
+      <div class="ai-metric"><div class="num">${mutualRate}%</div><div class="lbl">Taux d'intérêt mutuel</div></div>
+      <div class="ai-metric"><div class="num">${validesPretsAuMatching}</div><div class="lbl">Profils prêts au matching</div></div>
+      <div class="ai-metric"><div class="num">${propositions.length}</div><div class="lbl">Compatibilités générées</div></div>
+      <div class="ai-metric"><div class="num">${db.documents.filter(d=>d.type==="piece_identite").length}</div><div class="lbl">Identités vérifiées</div></div>
+    </div>
+  </div>
+
+  <div class="detail-grid">
+    <div>
+      <div class="section-title-row"><h3 style="margin:0">Dossiers à traiter en priorité</h3><a href="/admin/profils?statut=en_attente_validation">Voir tout →</a></div>
+      <table class="data-table">
+        <thead><tr><th>Prénom</th><th>Âge</th><th>Ville</th><th>Statut</th><th>Créé le</th><th></th></tr></thead>
+        <tbody>
+        ${candidats.filter(u => u.status === "en_attente_validation").slice(0,8).map((u) => {
+          const p = db.profiles.find((pr) => pr.userId === u.id);
+          return `<tr>
+            <td>${esc(u.prenom)}</td>
+            <td>${p ? (age(p.dateNaissance) || "—") : "—"}</td>
+            <td>${p ? esc(p.ville) : "—"}</td>
+            <td>${statusBadge(u.status)}</td>
+            <td>${fmtDate(u.createdAt)}</td>
+            <td><a href="/admin/profils/${u.id}" class="btn btn-sm btn-outline">Ouvrir</a></td>
+          </tr>`;
+        }).join("") || `<tr><td colspan="6" class="muted">Aucun dossier en attente.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h3>Journal des actions récentes</h3>
+      <div class="card">
+        ${recentLogs.map((l) => `<div class="note-item"><div>${esc(l.action)}</div><div class="meta">${fmtDate(l.createdAt)} · ${esc(l.details || "")}</div></div>`).join("") || '<p class="muted">Aucune action enregistrée.</p>'}
       </div>
     </div>
   </div>`;
@@ -111,25 +133,23 @@ function adminProfilsPage(user, query) {
   }).join("") || `<tr><td colspan="7" class="muted" style="text-align:center;padding:30px">Aucun résultat.</td></tr>`;
 
   const body = `
-  <div class="admin-wrap">
-    <div class="admin-toolbar">
-      <h2 style="margin:0">Profils (${candidats.length})</h2>
-      <form method="GET" class="admin-toolbar" style="gap:10px">
-        <div class="admin-search"><input type="text" name="q" placeholder="Rechercher un nom, e-mail…" value="${esc(query.q || "")}" /></div>
-        <select name="statut" onchange="this.form.submit()"><option value="">Tous les statuts</option>${options}</select>
-        <select name="sexe" onchange="this.form.submit()">
-          <option value="">Tous</option>
-          <option value="H" ${query.sexe === "H" ? "selected" : ""}>Hommes</option>
-          <option value="F" ${query.sexe === "F" ? "selected" : ""}>Femmes</option>
-        </select>
-        <button class="btn btn-sm btn-outline" type="submit">Filtrer</button>
-      </form>
-    </div>
-    <table class="data-table">
-      <thead><tr><th>Nom</th><th>Sexe</th><th>Âge</th><th>Ville</th><th>Statut</th><th>Créé le</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-  </div>`;
+  <div class="admin-toolbar fade-up">
+    <h2 style="margin:0">Profils <span class="muted" style="font-weight:500">(${candidats.length})</span></h2>
+    <form method="GET" class="admin-toolbar" style="gap:10px">
+      <div class="admin-search"><input type="text" name="q" placeholder="Rechercher un nom, e-mail…" value="${esc(query.q || "")}" /></div>
+      <select name="statut" onchange="this.form.submit()"><option value="">Tous les statuts</option>${options}</select>
+      <select name="sexe" onchange="this.form.submit()">
+        <option value="">Tous</option>
+        <option value="H" ${query.sexe === "H" ? "selected" : ""}>Hommes</option>
+        <option value="F" ${query.sexe === "F" ? "selected" : ""}>Femmes</option>
+      </select>
+      <button class="btn btn-sm btn-outline" type="submit">Filtrer</button>
+    </form>
+  </div>
+  <table class="data-table fade-up delay-1">
+    <thead><tr><th>Nom</th><th>Sexe</th><th>Âge</th><th>Ville</th><th>Statut</th><th>Créé le</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
   return layout({ title: "Profils", body, user, active: "profils", noindex: true });
 }
 
@@ -158,9 +178,17 @@ function adminProfilDetailPage(user, target, profile, criteria, documents, notes
       <div class="meta">${fmtDate(n.createdAt)}</div>
     </div>`).join("") || '<p class="muted">Aucune note pour le moment.</p>';
 
+  const ringCirc = 2 * Math.PI * 24;
   const suggestionsHtml = suggestions.map((s) => `
     <div class="candidate-row">
-      <div>
+      <div class="score-ring">
+        <svg width="56" height="56" viewBox="0 0 56 56">
+          <circle class="bg" cx="28" cy="28" r="24" fill="none" stroke-width="5"></circle>
+          <circle class="fg" cx="28" cy="28" r="24" fill="none" stroke-width="5" stroke-dasharray="${ringCirc.toFixed(1)}" stroke-dashoffset="${(ringCirc * (1 - s.score / 100)).toFixed(1)}"></circle>
+        </svg>
+        <div class="val">${s.score}%</div>
+      </div>
+      <div style="flex:1">
         <strong>${esc(s.profile.prenom)}</strong> · ${age(s.profile.dateNaissance) || "—"} ans · ${esc(s.profile.ville)} · ${esc(NIVEAU_RELIGIEUX_LABELS[s.profile.niveauReligieux] || s.profile.niveauReligieux)}
         <ul class="explanation-list">
           ${s.explanation.slice(0, 4).map((e) => `<li>${esc(e)}</li>`).join("")}
@@ -168,19 +196,17 @@ function adminProfilDetailPage(user, target, profile, criteria, documents, notes
         </ul>
       </div>
       <div style="text-align:right">
-        <div class="candidate-score">${s.score}%</div>
-        <button class="btn btn-gold btn-sm" onclick="proposer('${s.profile.userId}')">Proposer cette compatibilité</button>
+        <button class="btn btn-gold btn-sm" onclick="proposer('${s.profile.userId}')">Proposer</button>
       </div>
     </div>`).join("") || '<p class="muted">Aucun profil validé de sexe opposé à comparer pour le moment.</p>';
 
   const body = `
-  <div class="admin-wrap">
-    <div class="section-title-row">
+    <div class="section-title-row fade-up">
       <h2 style="margin:0">${esc(target.prenom)} ${esc(target.nom)} ${statusBadge(target.status)}</h2>
       <a href="/admin/profils" class="muted">← Retour à la liste</a>
     </div>
 
-    <div class="detail-grid">
+    <div class="detail-grid fade-up delay-1">
       <div>
         <div class="card" style="margin-bottom:22px">
           <h3>Identité &amp; contact</h3>
@@ -259,10 +285,10 @@ function adminProfilDetailPage(user, target, profile, criteria, documents, notes
         <div class="card" style="margin-bottom:22px">
           <h3>Décision</h3>
           <div style="display:grid;gap:10px">
-            <button class="btn btn-primary btn-sm" data-confirm="Valider ce dossier ?" onclick="changerStatut('valide')">Valider le dossier</button>
-            <button class="btn btn-outline btn-sm" data-confirm="Refuser ce dossier ?" onclick="changerStatut('refuse')">Refuser</button>
-            <button class="btn btn-outline btn-sm" data-confirm="Suspendre ce dossier ?" onclick="changerStatut('suspendu')">Suspendre</button>
-            ${target.status !== "en_attente_validation" ? `<button class="btn btn-outline btn-sm" onclick="changerStatut('en_attente_validation')">Repasser en attente</button>` : ""}
+            <button class="btn btn-primary btn-sm" data-confirm="Valider ce dossier ?" onclick="changerStatut('valide')">✓ Valider le dossier</button>
+            <button class="btn btn-outline btn-sm" data-confirm="Refuser ce dossier ?" onclick="changerStatut('refuse')">✕ Refuser</button>
+            <button class="btn btn-outline btn-sm" data-confirm="Suspendre ce dossier ?" onclick="changerStatut('suspendu')">⏸ Suspendre</button>
+            ${target.status !== "en_attente_validation" ? `<button class="btn btn-outline btn-sm" onclick="changerStatut('en_attente_validation')">↺ Repasser en attente</button>` : ""}
           </div>
         </div>
 
@@ -293,17 +319,16 @@ function adminProfilDetailPage(user, target, profile, criteria, documents, notes
         </div>
       </div>
     </div>
-  </div>
   <script>
   async function changerStatut(statut) {
     const res = await fetch('/api/admin/profils/${target.id}/statut', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({statut}) });
     const json = await res.json();
-    if (json.ok) window.location.reload(); else alert(json.error || 'Erreur');
+    if (json.ok) window.location.reload(); else toast(json.error || 'Erreur', 'error');
   }
   async function proposer(autreId) {
     const res = await fetch('/api/admin/propositions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({userAId:'${target.id}', userBId: autreId}) });
     const json = await res.json();
-    if (json.ok) { alert('Proposition créée.'); window.location.href = '/admin/propositions'; } else alert(json.error || 'Erreur');
+    if (json.ok) { toast('Proposition créée.', 'success'); window.location.href = '/admin/propositions'; } else toast(json.error || 'Erreur', 'error');
   }
   </script>`;
   return layout({ title: `${target.prenom} ${target.nom}`, body, user, active: "profils", noindex: true });
@@ -391,6 +416,21 @@ const PROP_LABELS = {
   suspendue: "Suspendue",
 };
 
+function scoreArc(score) {
+  const r = 22;
+  const circ = 2 * Math.PI * r;
+  const offset = (circ * (1 - score / 100)).toFixed(1);
+  const color = score >= 75 ? "var(--success)" : score >= 50 ? "var(--gold)" : "var(--muted-2)";
+  return `<div class="score-ring" style="width:52px;height:52px">
+    <svg width="52" height="52" viewBox="0 0 52 52">
+      <circle class="bg" cx="26" cy="26" r="${r}" fill="none" stroke-width="5"></circle>
+      <circle cx="26" cy="26" r="${r}" fill="none" stroke-width="5" stroke="${color}" stroke-linecap="round"
+        stroke-dasharray="${circ.toFixed(1)}" stroke-dashoffset="${offset}" style="transition:stroke-dashoffset 1s var(--ease)"></circle>
+    </svg>
+    <div class="val">${score}%</div>
+  </div>`;
+}
+
 function adminPropositionsPage(user, query) {
   const db = load();
   let props = [...db.propositions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -399,48 +439,48 @@ function adminPropositionsPage(user, query) {
   const options = Object.entries(PROP_LABELS)
     .map(([v, l]) => `<option value="${v}" ${query.statut === v ? "selected" : ""}>${esc(l)}</option>`).join("");
 
-  const rows = props.map((pr) => {
+  const cards = props.map((pr) => {
     const a = db.users.find((u) => u.id === pr.userAId);
     const b = db.users.find((u) => u.id === pr.userBId);
     if (!a || !b) return "";
-    return `<tr>
-      <td>${esc(a.prenom)} ${esc(a.nom)}</td>
-      <td>${esc(b.prenom)} ${esc(b.nom)}</td>
-      <td><strong>${pr.score}%</strong></td>
-      <td>${statusBadge(pr.status, PROP_LABELS)}</td>
-      <td>${fmtDate(pr.createdAt)}</td>
-      <td style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn btn-sm btn-outline" onclick="statut('${pr.id}','rdv')">RDV</button>
-        <button class="btn btn-sm btn-outline" data-confirm="Suspendre cette proposition ?" onclick="statut('${pr.id}','suspendue')">Suspendre</button>
-        <button class="btn btn-sm btn-gold" onclick="partager('${pr.id}','A')">Partager photo → ${esc(a.prenom)}</button>
-        <button class="btn btn-sm btn-gold" onclick="partager('${pr.id}','B')">Partager photo → ${esc(b.prenom)}</button>
-      </td>
-    </tr>`;
-  }).join("") || `<tr><td colspan="6" class="muted" style="text-align:center;padding:30px">Aucune proposition.</td></tr>`;
+    return `<div class="card card-hover fade-up" style="display:flex;align-items:center;gap:22px;flex-wrap:wrap;margin-bottom:14px">
+      ${scoreArc(pr.score)}
+      <div style="flex:1;min-width:220px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <strong>${esc(a.prenom)} ${esc(a.nom)}</strong>
+          <span class="muted">×</span>
+          <strong>${esc(b.prenom)} ${esc(b.nom)}</strong>
+          ${statusBadge(pr.status, PROP_LABELS)}
+        </div>
+        <div class="muted tiny" style="margin-top:6px">Créée le ${fmtDate(pr.createdAt)}</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn btn-sm btn-outline" onclick="statut('${pr.id}','rdv')">📅 RDV</button>
+        <button class="btn btn-sm btn-outline" data-confirm="Suspendre cette proposition ?" onclick="statut('${pr.id}','suspendue')">⏸ Suspendre</button>
+        <button class="btn btn-sm btn-gold" onclick="partager('${pr.id}','A')">📷 → ${esc(a.prenom)}</button>
+        <button class="btn btn-sm btn-gold" onclick="partager('${pr.id}','B')">📷 → ${esc(b.prenom)}</button>
+      </div>
+    </div>`;
+  }).join("") || `<div class="empty-state"><div class="ei">✦</div>Aucune proposition pour ce filtre.</div>`;
 
   const body = `
-  <div class="admin-wrap">
-    <div class="admin-toolbar">
-      <h2 style="margin:0">Compatibilités proposées</h2>
-      <form method="GET">
-        <select name="statut" onchange="this.form.submit()"><option value="">Tous les statuts</option>${options}</select>
-      </form>
-    </div>
-    <table class="data-table">
-      <thead><tr><th>Personne A</th><th>Personne B</th><th>Score</th><th>Statut</th><th>Créée le</th><th>Actions</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
+  <div class="admin-toolbar fade-up">
+    <h2 style="margin:0">Compatibilités proposées <span class="muted" style="font-weight:500">(${props.length})</span></h2>
+    <form method="GET">
+      <select name="statut" onchange="this.form.submit()"><option value="">Tous les statuts</option>${options}</select>
+    </form>
   </div>
+  ${cards}
   <script>
   async function statut(id, statut) {
     const res = await fetch('/api/admin/propositions/' + id + '/statut', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({statut}) });
     const json = await res.json();
-    if (json.ok) window.location.reload(); else alert(json.error || 'Erreur');
+    if (json.ok) window.location.reload(); else toast(json.error || 'Erreur', 'error');
   }
   async function partager(id, cote) {
     const res = await fetch('/api/admin/propositions/' + id + '/photo', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({cote}) });
     const json = await res.json();
-    if (json.ok) { alert('Photo partagée.'); } else alert(json.error || 'Erreur');
+    if (json.ok) { toast('Photo partagée.', 'success'); } else toast(json.error || 'Erreur', 'error');
   }
   </script>`;
   return layout({ title: "Compatibilités", body, user, active: "propositions", noindex: true });
