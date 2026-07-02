@@ -23,9 +23,9 @@ const crypto = require("crypto");
   });
 })();
 
-const { load, UPLOADS_DIR } = require("./src/db");
+const { load, withDb, uid, UPLOADS_DIR } = require("./src/db");
 const {
-  getCurrentUser, createSession, destroySession, setSessionCookie, clearSessionCookie,
+  getCurrentUser, createSession, destroySession, setSessionCookie, clearSessionCookie, hashPassword,
 } = require("./src/auth");
 
 const pub = require("./src/pages/public");
@@ -364,6 +364,5 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Chidoukhim — serveur démarré sur http://localhost:${PORT}`);
-});
+// Crée (ou promeut) automatiquement le compte administrateur au démarrage,
+// à p
