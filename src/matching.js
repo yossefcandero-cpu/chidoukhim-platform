@@ -1,32 +1,9 @@
 "use strict";
 // Moteur de compatibilité — scoring transparent et explicable (pas de "boîte noire").
 // Chaque score est accompagné des raisons qui le justifient, pour que l'administrateur
-// garde la décision finale. Voir README section "Intelligence artificielle" pour le
-// principe et la piste d'amélioration (embeddings sémantiques / LLM).
+// garde la décision finale.
 
-const NIVEAU_RELIGIEUX_ECHELLE = {
-  traditionaliste: 1,
-  pratiquant: 2,
-  dati_leumi: 3,
-  pratiquant_engage: 3,
-  litvish: 4,
-  hassidique: 4,
-  loubavitch: 4,
-  haredi: 5,
-  autre: 2.5,
-};
-
-const NIVEAU_RELIGIEUX_LABELS = {
-  traditionaliste: "Traditionaliste",
-  pratiquant: "Pratiquant",
-  dati_leumi: "Dati leumi",
-  pratiquant_engage: "Pratiquant engagé",
-  litvish: "Litvish",
-  hassidique: "Hassidique",
-  loubavitch: "Loubavitch",
-  haredi: "Harédi",
-  autre: "Autre",
-};
+const { STREAM_LABELS, STREAM_SCALE } = require("./data/religiousStreams");
 
 const STOPWORDS = new Set([
   "le","la","les","de","des","du","un","une","et","est","ou","a","au","aux",
@@ -78,6 +55,24 @@ function textContainsAny(haystack, needleTokens) {
   return needleTokens.some((t) => hay.includes(t));
 }
 
+function streamCodes(profileOrCriteria) {
+  const arr = profileOrCriteria && profileOrCriteria.courantsReligieux;
+  if (Array.isArray(arr)) return arr.filter(Boolean);
+  // rétro-compatibilité avec l'ancien champ unique "niveauReligieux"
+  if (profileOrCriteria && profileOrCriteria.niveauReligieux) return [profileOrCriteria.niveauReligieux];
+  return [];
+}
+
+function avgScale(codes) {
+  const vals = codes.map((c) => STREAM_SCALE[c]).filter((v) => typeof v === "number");
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function streamLabelList(codes) {
+  return codes.map((c) => STREAM_LABELS[c] || c);
+}
+
 // Évalue à quel point `profile` (+ ses infos) satisfait les critères `criteria`
 // exprimés par l'autre partie. Retourne un sous-score 0-100 et des explications.
 function scoreOneDirection(profile, criteria, otherLabel) {
@@ -124,26 +119,31 @@ function scoreOneDirection(profile, criteria, otherLabel) {
     points += 6;
   }
 
-  // --- Niveau religieux ---
+  // --- Courant(s) religieux ---
   maxPoints += 20;
-  if (profile.niveauReligieux && criteria.niveauReligieux) {
-    const na = NIVEAU_RELIGIEUX_ECHELLE[profile.niveauReligieux] ?? 2.5;
-    const nb = NIVEAU_RELIGIEUX_ECHELLE[criteria.niveauReligieux] ?? 2.5;
-    const dist = Math.abs(na - nb);
-    if (dist === 0) {
+  const profileStreams = streamCodes(profile);
+  const desiredStreams = streamCodes(criteria);
+  if (profileStreams.length && desiredStreams.length) {
+    const overlap = profileStreams.filter((c) => desiredStreams.includes(c));
+    if (overlap.length) {
       points += 20;
-      notes.push(`Niveau religieux identique (${NIVEAU_RELIGIEUX_LABELS[profile.niveauReligieux] || profile.niveauReligieux}).`);
-    } else if (dist <= 1) {
-      points += 13;
-      notes.push(`Niveau religieux proche (${NIVEAU_RELIGIEUX_LABELS[profile.niveauReligieux] || profile.niveauReligieux} / ${NIVEAU_RELIGIEUX_LABELS[criteria.niveauReligieux] || criteria.niveauReligieux}).`);
+      notes.push(`Courant religieux correspondant (${streamLabelList(overlap).join(", ")}).`);
     } else {
-      warnings.push(`Écart de niveau religieux notable (${NIVEAU_RELIGIEUX_LABELS[profile.niveauReligieux] || profile.niveauReligieux} / ${NIVEAU_RELIGIEUX_LABELS[criteria.niveauReligieux] || criteria.niveauReligieux}).`);
+      const na = avgScale(profileStreams);
+      const nb = avgScale(desiredStreams);
+      const dist = na != null && nb != null ? Math.abs(na - nb) : 2;
+      if (dist <= 1) {
+        points += 13;
+        notes.push(`Courants religieux proches (${streamLabelList(profileStreams).join(", ")} / ${streamLabelList(desiredStreams).join(", ")}).`);
+      } else {
+        warnings.push(`Écart de courant religieux notable (${streamLabelList(profileStreams).join(", ")} / ${streamLabelList(desiredStreams).join(", ")}).`);
+      }
     }
   } else {
     points += 10;
   }
 
-  // --- Communauté / origine ---
+  // --- Pays / communauté / origine ---
   maxPoints += 10;
   if (criteria.communaute) {
     if ((profile.communaute || "").toLowerCase().trim() === criteria.communaute.toLowerCase().trim()) {
@@ -160,6 +160,13 @@ function scoreOneDirection(profile, criteria, otherLabel) {
     if ((profile.origine || "").toLowerCase().trim() === criteria.origine.toLowerCase().trim()) {
       points += 5;
       notes.push(`Origine correspondante (${profile.origine}).`);
+    }
+  }
+  if (criteria.pays) {
+    maxPoints += 5;
+    if ((profile.pays || "").toLowerCase().trim() === String(criteria.pays).toLowerCase().trim()) {
+      points += 5;
+      notes.push(`Même pays (${profile.pays}).`);
     }
   }
 
@@ -183,7 +190,7 @@ function scoreOneDirection(profile, criteria, otherLabel) {
     const profileText = [
       profile.personnalite, profile.qualites, profile.centresInteret, profile.objectifsVie,
       profile.aspirationsSpirituelles, profile.profession, profile.etudes, profile.situationFamiliale,
-      profile.niveauReligieux, profile.communaute, profile.villeText,
+      streamLabelList(profileStreams).join(" "), profile.communaute, profile.ville,
     ].filter(Boolean).join(" ");
     let satisfied = 0;
     indispensables.forEach((crit) => {
@@ -203,7 +210,7 @@ function scoreOneDirection(profile, criteria, otherLabel) {
   if (redhibitoires.length) {
     const profileText = [
       profile.personnalite, profile.defauts, profile.situationFamiliale, profile.enfants,
-      profile.etatSante, profile.niveauReligieux,
+      profile.etatSante, streamLabelList(profileStreams).join(" "),
     ].filter(Boolean).join(" ");
     redhibitoires.forEach((crit) => {
       const toks = tokenize(crit);
@@ -288,8 +295,11 @@ function rankCandidates(target, targetCriteria, pool /* [{profile, criteria}] */
 
 module.exports = {
   age,
+  tokenize,
   computeCompatibility,
   rankCandidates,
-  NIVEAU_RELIGIEUX_LABELS,
-  NIVEAU_RELIGIEUX_ECHELLE,
+  streamCodes,
+  avgScale,
+  streamLabelList,
+  STREAM_LABELS,
 };

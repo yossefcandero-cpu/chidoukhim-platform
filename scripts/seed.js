@@ -37,7 +37,7 @@ withDb((db) => {
       id: uid("user"),
       role: "admin",
       prenom: "Administrateur",
-      nom: "Chidoukhim",
+      nom: "Tipat Mazal",
       sexe: "H",
       email,
       telephone: "",

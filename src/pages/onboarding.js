@@ -4,6 +4,8 @@ const { load, withDb, uid, UPLOADS_DIR } = require("../db");
 const { genCode } = require("../auth");
 const { notify } = require("../notify");
 const { required, clampStr } = require("../validators");
+const { STREAMS } = require("../data/religiousStreams");
+const { COUNTRIES, CITIES } = require("../data/geo");
 const fs = require("fs");
 const path = require("path");
 
@@ -21,6 +23,12 @@ function stepper(current) {
     return `<div class="${cls}"><div class="st-circle">${n < current ? "✓" : n}</div><div class="st-label">${esc(s.label)}</div></div>`;
   }).join("");
   return `<div class="step-progress-label">Étape ${current} sur ${ONBOARDING_STEPS.length}</div><div class="step-track">${items}</div>`;
+}
+
+// Petit script embarqué, réutilisé sur les pages de formulaire : sert les
+// référentiels pays/villes et courants religieux au client (aucune dépendance).
+function geoDataScript() {
+  return `<script>window.TM_GEO = ${JSON.stringify({ countries: COUNTRIES, cities: CITIES })};</script>`;
 }
 
 // ---------- Étape 1 : vérification ----------
@@ -117,7 +125,7 @@ function apiEnvoyerCode(user, body) {
     notify.email(user.email, "Votre code de vérification", `Votre code : ${code} (valable 10 minutes)`);
     return { ok: true, devCode: noProviderEmail ? code : undefined };
   } else {
-    notify.sms(user.telephone, "Code Chidoukhim", `Votre code : ${code} (valable 10 minutes)`);
+    notify.sms(user.telephone, "Code Tipat Mazal", `Votre code : ${code} (valable 10 minutes)`);
     return { ok: true, devCode: noProviderSms ? code : undefined };
   }
 }
@@ -214,20 +222,25 @@ function apiDocuments(user, body) {
 }
 
 // ---------- Étape 3 : profil personnel ----------
-const NIVEAUX = [
-  ["traditionaliste", "Traditionaliste"],
-  ["pratiquant", "Pratiquant"],
-  ["dati_leumi", "Dati leumi"],
-  ["pratiquant_engage", "Pratiquant engagé"],
-  ["litvish", "Litvish"],
-  ["hassidique", "Hassidique"],
-  ["loubavitch", "Loubavitch"],
-  ["haredi", "Harédi"],
-  ["autre", "Autre"],
-];
+function courantsCheckboxes(selected) {
+  const sel = Array.isArray(selected) ? selected : [];
+  return STREAMS.map((s) => `
+    <label class="check-pill">
+      <input type="checkbox" name="courantsReligieux" value="${esc(s.code)}" ${sel.includes(s.code) ? "checked" : ""} />
+      <span>${esc(s.label)}</span>
+    </label>`).join("");
+}
 
-function selectOptions(list, selected) {
-  return list.map(([v, l]) => `<option value="${esc(v)}" ${selected === v ? "selected" : ""}>${esc(l)}</option>`).join("");
+function geoComboField(prefix, label, hint, currentValue) {
+  return `
+  <div class="field">
+    <label>${esc(label)}${hint ? ` <span class="hint">${esc(hint)}</span>` : ""}</label>
+    <div class="combo" id="combo-${prefix}">
+      <input type="text" id="${prefix}-search" class="combo-input" autocomplete="off" placeholder="Rechercher…" value="${esc(currentValue || "")}" />
+      <input type="hidden" name="${prefix}" id="${prefix}-value" value="${esc(currentValue || "")}" />
+      <div class="combo-panel" id="${prefix}-panel"></div>
+    </div>
+  </div>`;
 }
 
 function profilPage(user, profile, error) {
@@ -246,28 +259,39 @@ function profilPage(user, profile, error) {
       </div>
       <div class="field-row">
         <div class="field"><label>Poids (kg) <span class="hint">optionnel</span></label><input type="number" name="poids" min="30" max="250" value="${esc(p.poids)}" /></div>
-        <div class="field"><label>Langue(s) parlée(s)</label><input type="text" name="langues" value="${esc(p.langues)}" placeholder="Français, hébreu, anglais…" required /></div>
+        <div class="field"><label>Langue(s) parlée(s)</label><input type="text" name="langues" value="${esc(p.langues)}" placeholder="Ex : Français, hébreu, anglais…" required /></div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Ville</label><input type="text" name="ville" value="${esc(p.ville)}" required /></div>
-        <div class="field"><label>Pays</label><input type="text" name="pays" value="${esc(p.pays)}" required /></div>
+        ${geoComboField("pays", "Pays", "tapez pour rechercher", p.pays)}
+        ${geoComboField("ville", "Ville", "sélectionnez le pays d'abord", p.ville)}
+      </div>
+      <div class="field" id="ville-autre-field" style="display:none">
+        <label>Précisez votre ville <span class="hint">non listée ci-dessus</span></label>
+        <input type="text" id="ville-autre-input" placeholder="Nom de la ville" />
       </div>
       <div class="field-row">
-        <div class="field"><label>Origine</label><input type="text" name="origine" value="${esc(p.origine)}" placeholder="Ashkénaze, séfarade…" /></div>
-        <div class="field"><label>Communauté</label><input type="text" name="communaute" value="${esc(p.communaute)}" /></div>
+        <div class="field"><label>Origine <span class="hint">Ex : ashkénaze, séfarade, mixte…</span></label><input type="text" name="origine" value="${esc(p.origine)}" placeholder="Ashkénaze, séfarade…" /></div>
+        <div class="field"><label>Communauté <span class="hint">Ex : communauté marocaine, alsacienne…</span></label><input type="text" name="communaute" value="${esc(p.communaute)}" /></div>
       </div>
-      <div class="field"><label>Minhag</label><input type="text" name="minhag" value="${esc(p.minhag)}" /></div>
+      <div class="field"><label>Minhag <span class="hint">Ex : Ashkénaze, Sépharade, 'Habad…</span></label><input type="text" name="minhag" value="${esc(p.minhag)}" /></div>
+
+      <h3><span class="sec-ic">🕎</span>Courant(s) religieux</h3>
+      <p class="muted" style="margin-top:-8px">Sélectionnez un ou plusieurs courants qui vous correspondent.</p>
+      <div class="field">
+        <div class="check-grid">${courantsCheckboxes(p.courantsReligieux)}</div>
+      </div>
+      <div class="field" id="courant-autre-field" style="display:${(p.courantsReligieux || []).includes("autre") ? "block" : "none"}">
+        <label>Précisez votre courant</label>
+        <input type="text" name="courantAutre" value="${esc(p.courantAutre)}" placeholder="Ex : Loubavitch modéré, Sépharade traditionaliste…" />
+      </div>
 
       <h3><span class="sec-ic">🎓</span>Parcours</h3>
       <div class="field-row">
         <div class="field"><label>Profession</label><input type="text" name="profession" value="${esc(p.profession)}" required /></div>
         <div class="field"><label>Études</label><input type="text" name="etudes" value="${esc(p.etudes)}" /></div>
       </div>
-      <div class="field-row">
-        <div class="field"><label>Niveau religieux</label><select name="niveauReligieux" required><option value="">— Choisir —</option>${selectOptions(NIVEAUX, p.niveauReligieux)}</select></div>
-        <div class="field"><label>Yéchiva / séminaire</label><input type="text" name="yeshiva" value="${esc(p.yeshiva)}" /></div>
-      </div>
-      <div class="field"><label>Rav de référence</label><input type="text" name="ravReference" value="${esc(p.ravReference)}" /></div>
+      <div class="field"><label>Yéchiva / séminaire <span class="hint">optionnel</span></label><input type="text" name="yeshiva" value="${esc(p.yeshiva)}" /></div>
+      <div class="field"><label>Rav de référence <span class="hint">optionnel</span></label><input type="text" name="ravReference" value="${esc(p.ravReference)}" /></div>
 
       <h3><span class="sec-ic">⌂</span>Situation familiale</h3>
       <div class="field-row">
@@ -292,36 +316,40 @@ function profilPage(user, profile, error) {
       </div>
 
       <h3><span class="sec-ic">✦</span>Personnalité</h3>
-      <div class="field"><label>Décrivez votre personnalité</label><textarea name="personnalite" required>${esc(p.personnalite)}</textarea></div>
+      <div class="field"><label>Décrivez votre personnalité <span class="hint">Ex : calme, souriant(e), à l'écoute, plutôt réservé(e) en groupe…</span></label><textarea name="personnalite" placeholder="Parlez de votre tempérament, de vos valeurs, de ce qui vous anime au quotidien…" required>${esc(p.personnalite)}</textarea></div>
       <div class="field-row">
-        <div class="field"><label>Vos qualités</label><textarea name="qualites">${esc(p.qualites)}</textarea></div>
-        <div class="field"><label>Vos défauts</label><textarea name="defauts">${esc(p.defauts)}</textarea></div>
+        <div class="field"><label>Vos qualités <span class="hint">Ex : patient, généreux, drôle…</span></label><textarea name="qualites" placeholder="Trois à cinq qualités qui vous définissent">${esc(p.qualites)}</textarea></div>
+        <div class="field"><label>Vos défauts <span class="hint">Ex : impatient, tête en l'air…</span></label><textarea name="defauts" placeholder="Soyez honnête, cela aide le Shadkhan">${esc(p.defauts)}</textarea></div>
       </div>
-      <div class="field"><label>Centres d'intérêt</label><textarea name="centresInteret">${esc(p.centresInteret)}</textarea></div>
-      <div class="field"><label>Objectifs de vie</label><textarea name="objectifsVie">${esc(p.objectifsVie)}</textarea></div>
-      <div class="field"><label>Aspirations spirituelles</label><textarea name="aspirationsSpirituelles">${esc(p.aspirationsSpirituelles)}</textarea></div>
+      <div class="field"><label>Centres d'intérêt <span class="hint">Ex : lecture, cuisine, sport, musique…</span></label><textarea name="centresInteret">${esc(p.centresInteret)}</textarea></div>
+      <div class="field"><label>Objectifs de vie <span class="hint">Ex : fonder un foyer, s'installer en Israël, concilier carrière et famille…</span></label><textarea name="objectifsVie">${esc(p.objectifsVie)}</textarea></div>
+      <div class="field"><label>Aspirations spirituelles <span class="hint">Ex : progresser ensemble dans l'étude, transmettre des valeurs claires aux enfants…</span></label><textarea name="aspirationsSpirituelles">${esc(p.aspirationsSpirituelles)}</textarea></div>
 
       <h3><span class="sec-ic">💬</span>Questions ouvertes</h3>
-      <div class="field"><label>Parlez-nous de vous, de votre parcours, de ce qui vous définit</label><textarea name="questionOuverte1">${esc(p.questionOuverte1)}</textarea></div>
-      <div class="field"><label>Qu'attendez-vous du mariage et de la vie de famille ?</label><textarea name="questionOuverte2">${esc(p.questionOuverte2)}</textarea></div>
+      <div class="field"><label>Parlez-nous de vous, de votre parcours, de ce qui vous définit</label><textarea name="questionOuverte1" placeholder="Un parcours, une expérience marquante, une valeur essentielle…">${esc(p.questionOuverte1)}</textarea></div>
+      <div class="field"><label>Qu'attendez-vous du mariage et de la vie de famille ?</label><textarea name="questionOuverte2" placeholder="Vos attentes, votre vision du foyer que vous souhaitez construire…">${esc(p.questionOuverte2)}</textarea></div>
 
       <button type="submit" class="btn btn-primary btn-block">Continuer</button>
     </form>
-  </div>`;
+  </div>
+  ${geoDataScript()}
+  <script>document.addEventListener('DOMContentLoaded', function(){ if (window.initGeoCombos) window.initGeoCombos(); if (window.initCourantAutre) window.initCourantAutre(); });</script>`;
   return layout({ title: "Mon profil", body, user, noindex: true });
 }
 
 const PROFIL_FIELDS = [
   "dateNaissance", "taille", "poids", "langues", "ville", "pays", "origine", "communaute", "minhag",
-  "profession", "etudes", "niveauReligieux", "yeshiva", "ravReference", "situationFamiliale", "enfants",
+  "profession", "etudes", "yeshiva", "ravReference", "situationFamiliale", "enfants",
   "etatSante", "demenagement", "personnalite", "qualites", "defauts", "centresInteret", "objectifsVie",
-  "aspirationsSpirituelles", "questionOuverte1", "questionOuverte2",
+  "aspirationsSpirituelles", "questionOuverte1", "questionOuverte2", "courantAutre",
 ];
 
 function apiProfil(user, body) {
-  const obligatoires = ["dateNaissance", "taille", "langues", "ville", "pays", "profession", "niveauReligieux", "situationFamiliale", "demenagement", "personnalite"];
+  const obligatoires = ["dateNaissance", "taille", "langues", "ville", "pays", "profession", "situationFamiliale", "demenagement", "personnalite"];
   const missing = required(body, obligatoires);
   if (missing.length) return { error: "Merci de compléter tous les champs obligatoires du questionnaire." };
+  const courants = Array.isArray(body.courantsReligieux) ? body.courantsReligieux : (body.courantsReligieux ? [body.courantsReligieux] : []);
+  if (!courants.length) return { error: "Merci de sélectionner au moins un courant religieux." };
 
   withDb((db) => {
     let profile = db.profiles.find((p) => p.userId === user.id);
@@ -332,6 +360,7 @@ function apiProfil(user, body) {
     for (const f of PROFIL_FIELDS) {
       profile[f] = clampStr(body[f], 3000);
     }
+    profile.courantsReligieux = courants.filter((c) => typeof c === "string").slice(0, 20);
     profile.updatedAt = new Date().toISOString();
   });
   return { ok: true };
@@ -356,7 +385,11 @@ function recherchePage(user, criteria, error) {
         <div class="field"><label>Taille minimum (cm) <span class="hint">optionnel</span></label><input type="number" name="tailleMin" value="${esc(c.tailleMin)}" /></div>
         <div class="field"><label>Taille maximum (cm) <span class="hint">optionnel</span></label><input type="number" name="tailleMax" value="${esc(c.tailleMax)}" /></div>
       </div>
-      <div class="field"><label>Niveau religieux souhaité</label><select name="niveauReligieux" required><option value="">— Choisir —</option>${selectOptions(NIVEAUX, c.niveauReligieux)}</select></div>
+
+      <h3><span class="sec-ic">🕎</span>Courant(s) religieux souhaité(s)</h3>
+      <p class="muted" style="margin-top:-8px">Laissez vide si cela n'est pas déterminant pour vous.</p>
+      <div class="field"><div class="check-grid">${courantsCheckboxes(c.courantsReligieux)}</div></div>
+
       <div class="field-row">
         <div class="field"><label>Origine souhaitée <span class="hint">optionnel</span></label><input type="text" name="origine" value="${esc(c.origine)}" /></div>
         <div class="field"><label>Communauté souhaitée <span class="hint">optionnel</span></label><input type="text" name="communaute" value="${esc(c.communaute)}" /></div>
@@ -373,13 +406,13 @@ function recherchePage(user, criteria, error) {
         <div class="field"><label>Profession recherchée <span class="hint">optionnel</span></label><input type="text" name="profession" value="${esc(c.profession)}" /></div>
         <div class="field"><label>Études recherchées <span class="hint">optionnel</span></label><input type="text" name="etudes" value="${esc(c.etudes)}" /></div>
       </div>
-      <div class="field"><label>Traits de caractère recherchés</label><textarea name="traitsRecherches">${esc(c.traitsRecherches)}</textarea></div>
+      <div class="field"><label>Traits de caractère recherchés <span class="hint">Ex : douceur, sens de l'humour, ambition…</span></label><textarea name="traitsRecherches">${esc(c.traitsRecherches)}</textarea></div>
 
       <h3><span class="sec-ic">⚖</span>Critères de priorité</h3>
       <p class="muted" style="margin-top:-8px">Ces trois niveaux aident l'intelligence artificielle à pondérer chaque compatibilité — un critère par ligne.</p>
       <div class="field"><label>Critères indispensables <span class="hint">doivent absolument être réunis</span></label><textarea name="criteresIndispensables" placeholder="Ex : souhaite fonder une famille&#10;Pratique religieuse quotidienne">${esc(c.criteresIndispensables)}</textarea></div>
-      <div class="field"><label>Critères secondaires <span class="hint">appréciés, sans être déterminants</span></label><textarea name="criteresSecondaires">${esc(c.criteresSecondaires)}</textarea></div>
-      <div class="field"><label>Critères rédhibitoires <span class="hint">ce que vous ne pouvez absolument pas accepter</span></label><textarea name="criteresRedhibitoires">${esc(c.criteresRedhibitoires)}</textarea></div>
+      <div class="field"><label>Critères secondaires <span class="hint">appréciés, sans être déterminants</span></label><textarea name="criteresSecondaires" placeholder="Ex : aime voyager&#10;Issu(e) d'une famille nombreuse">${esc(c.criteresSecondaires)}</textarea></div>
+      <div class="field"><label>Critères rédhibitoires <span class="hint">ce que vous ne pouvez absolument pas accepter</span></label><textarea name="criteresRedhibitoires" placeholder="Un critère par ligne">${esc(c.criteresRedhibitoires)}</textarea></div>
 
       <button type="submit" class="btn btn-primary btn-block btn-lg">Envoyer mon dossier pour validation</button>
     </form>
@@ -388,13 +421,13 @@ function recherchePage(user, criteria, error) {
 }
 
 const CRITERIA_FIELDS = [
-  "ageMin", "ageMax", "tailleMin", "tailleMax", "niveauReligieux", "origine", "communaute", "demenagement",
+  "ageMin", "ageMax", "tailleMin", "tailleMax", "origine", "communaute", "demenagement",
   "profession", "etudes", "traitsRecherches", "criteresIndispensables", "criteresSecondaires", "criteresRedhibitoires",
 ];
 
 function apiRecherche(user, body) {
-  const missing = required(body, ["ageMin", "ageMax", "niveauReligieux"]);
-  if (missing.length) return { error: "Merci de compléter au moins la tranche d'âge et le niveau religieux souhaités." };
+  const missing = required(body, ["ageMin", "ageMax"]);
+  if (missing.length) return { error: "Merci de compléter au moins la tranche d'âge souhaitée." };
 
   withDb((db) => {
     let crit = db.criteria.find((c) => c.userId === user.id);
@@ -405,12 +438,13 @@ function apiRecherche(user, body) {
     for (const f of CRITERIA_FIELDS) {
       crit[f] = clampStr(body[f], 3000);
     }
+    const courants = Array.isArray(body.courantsReligieux) ? body.courantsReligieux : (body.courantsReligieux ? [body.courantsReligieux] : []);
+    crit.courantsReligieux = courants.filter((c) => typeof c === "string").slice(0, 20);
     const u = db.users.find((x) => x.id === user.id);
     if (u && u.status !== "valide" && u.status !== "refuse" && u.status !== "suspendu") {
       u.status = "en_attente_validation";
     }
   });
-  notify.email("admin", "Nouveau dossier complet à valider", `Le dossier de ${user.prenom} ${user.nom} est complet et attend une validation.`);
   return { ok: true };
 }
 
@@ -420,7 +454,7 @@ function terminePage(user) {
     <div style="width:64px;height:64px;border-radius:50%;background:var(--success-soft);color:var(--success);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:1.6rem">✓</div>
     <div class="eyebrow" style="justify-content:center">Dossier complet</div>
     <h2>Merci, votre dossier est complet</h2>
-    <p>Il est maintenant entre les mains de notre équipe et de notre moteur de compatibilité. Vous serez averti par e-mail dès qu'il aura été examiné.</p>
+    <p>Il est maintenant entre les mains de notre équipe et de notre moteur de compatibilité. Vous serez averti par e-mail — et dans votre centre de notifications — dès qu'il aura été examiné.</p>
     <a href="/tableau-de-bord" class="btn btn-primary btn-lg">Accéder à mon espace</a>
   </div>`;
   return layout({ title: "Dossier envoyé", body, user, noindex: true });
@@ -432,5 +466,4 @@ module.exports = {
   profilPage, apiProfil,
   recherchePage, apiRecherche,
   terminePage,
-  NIVEAUX,
 };

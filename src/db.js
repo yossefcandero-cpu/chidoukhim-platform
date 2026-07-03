@@ -21,6 +21,9 @@ function emptyDb() {
     auditLogs: [],         // journal des actions admin
     otps: [],                // codes de vérification email/téléphone
     sessions: [],              // sessions de connexion
+    passwordResets: [],         // jetons de réinitialisation de mot de passe
+    messages: [],                 // messagerie interne admin <-> membre (par conversation userId)
+    notifications: [],             // centre de notifications des membres
   };
 }
 

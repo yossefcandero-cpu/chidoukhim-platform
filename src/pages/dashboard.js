@@ -1,7 +1,9 @@
 "use strict";
-const { layout, esc } = require("../render");
+const { layout, esc, timeAgo } = require("../render");
 const { load, withDb } = require("../db");
-const { age } = require("../matching");
+const { age, streamLabelList, streamCodes } = require("../matching");
+const { threadForUser, sendFromUser, markThreadRead, QUICK_MESSAGES } = require("../messages");
+const { markRead: markNotifRead } = require("../notifications");
 
 const STATUT_LABELS = {
   en_attente_verification: ["Vérification en cours", "Merci de compléter la vérification de votre identité (e-mail, téléphone, documents)."],
@@ -18,7 +20,7 @@ function teaser(profile) {
     a ? `${a} ans` : null,
     profile.ville,
     profile.communaute,
-    profile.niveauReligieux,
+    streamLabelList(streamCodes(profile)).join(" / ") || null,
   ].filter(Boolean).join(" · ");
 }
 
@@ -84,7 +86,7 @@ function dashboardPage(user) {
       ${!needsOnboarding && !profile ? `<a href="/onboarding/documents" class="btn btn-primary">Compléter mon dossier</a>` : ""}
     </div>
 
-    <div class="section-title-row"><h3 style="margin:0">Propositions de compatibilité</h3></div>
+    <div class="section-title-row"><h3 style="margin:0">Propositions de compatibilité</h3><a href="/tableau-de-bord/messages">✉ Messagerie avec l'équipe →</a></div>
     ${propRows}
   </div>
   <script>
@@ -118,4 +120,41 @@ function apiReagir(user, propositionId, body) {
   return { ok: true };
 }
 
-module.exports = { dashboardPage, apiReagir };
+// ---------- Messagerie (membre <-> administrateur uniquement) ----------
+function messagesPage(user) {
+  markThreadRead(user.id);
+  const thread = threadForUser(user.id);
+  const bubbles = thread.map((m) => `
+    <div class="msg-bubble ${m.from === "admin" ? "msg-in" : "msg-out"}">
+      <div class="msg-text">${esc(m.text)}</div>
+      <div class="msg-time">${m.from === "admin" ? "Équipe Tipat Mazal" : "Vous"} · ${esc(timeAgo(m.createdAt))}</div>
+    </div>`).join("") || `<div class="empty-state"><div class="ei">✉</div>Aucun message pour le moment. L'équipe vous contactera ici si besoin.</div>`;
+
+  const body = `
+  <div class="dash-wrap" style="max-width:760px">
+    <div class="section-title-row fade-up"><h2 style="margin:0">Messagerie</h2><a href="/tableau-de-bord">← Mon espace</a></div>
+    <p class="muted" style="margin-top:-8px">Ce canal relie uniquement vous et l'équipe Tipat Mazal — jamais un autre membre.</p>
+    <div class="msg-thread fade-up delay-1" id="msg-thread">${bubbles}</div>
+    <form class="js-form" id="msg-form" data-endpoint="/api/tableau-de-bord/messages" style="margin-top:18px;display:flex;gap:10px">
+      <div class="field" style="flex:1;margin-bottom:0"><textarea name="text" placeholder="Écrire un message à l'équipe…" required style="min-height:52px"></textarea></div>
+      <button type="submit" class="btn btn-primary" style="align-self:flex-end">Envoyer</button>
+    </form>
+  </div>
+  <script>
+  document.getElementById('msg-form').addEventListener('submit', function(){ setTimeout(()=>window.location.reload(), 300); });
+  </script>`;
+  return layout({ title: "Messagerie", body, user, active: "messages", noindex: true });
+}
+
+function apiEnvoyerMessageMembre(user, body) {
+  return sendFromUser(user, body);
+}
+
+function apiOuvrirNotification(user, notifId) {
+  const n = markNotifRead(user.id, notifId);
+  return n ? n.link : "/tableau-de-bord";
+}
+
+module.exports = {
+  dashboardPage, apiReagir, messagesPage, apiEnvoyerMessageMembre, apiOuvrirNotification, teaser, STATUT_LABELS,
+};

@@ -1,7 +1,7 @@
-# Chidoukhim — plateforme assistée par IA
+# Tipat Mazal — plateforme de chidoukhim assistée par IA
 
 Application complète (front + back + base de données) pour une plateforme de
-Chidoukhim centrée sur le Shadkhan : aucun profil public, aucune recherche ni
+Plateforme de chidoukhim centrée sur le Shadkhan : aucun profil public, aucune recherche ni
 messagerie en libre-service, aucune photo publique. Tout passe par un dossier
 détaillé, une vérification d'identité, puis une recherche de compatibilités
 effectuée par un moteur d'IA explicable et validée par un administrateur humain.

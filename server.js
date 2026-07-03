@@ -33,6 +33,7 @@ const authPages = require("./src/pages/auth");
 const onboarding = require("./src/pages/onboarding");
 const dashboard = require("./src/pages/dashboard");
 const admin = require("./src/pages/admin");
+const { buildProfileAnalysis } = require("./src/aiAnalysis");
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -203,6 +204,34 @@ async function handle(req, res) {
       return redirect(res, "/");
     }
 
+    // ---------- mot de passe oublié ----------
+    if (req.method === "GET" && pathname === "/mot-de-passe-oublie") {
+      if (user) return redirect(res, authPages.redirectForUser(user));
+      return sendHtml(res, authPages.motDePasseOubliePage(user, query.envoye === "1"));
+    }
+    if (req.method === "POST" && pathname === "/api/mot-de-passe-oublie") {
+      if (rateLimited(req, "reset-demande", 6, 10 * 60 * 1000)) return sendJson(res, { ok: false, error: "Trop de tentatives, réessayez plus tard." }, 429);
+      if (!sameOriginOk(req)) return sendJson(res, { ok: false, error: "Origine invalide." }, 403);
+      const body = await readJsonBody(req);
+      const baseUrl = `http://${req.headers.host}`;
+      const result = authPages.apiDemandeReset(body, baseUrl);
+      if (result.error) return sendJson(res, { ok: false, error: result.error }, 400);
+      return sendJson(res, { ok: true });
+    }
+    if (req.method === "GET" && pathname === "/reinitialiser-mot-de-passe") {
+      if (user) return redirect(res, authPages.redirectForUser(user));
+      const valid = authPages.findValidResetToken(query.token);
+      return sendHtml(res, authPages.reinitialiserMotDePassePage(user, query.token, !valid));
+    }
+    if (req.method === "POST" && pathname === "/api/reinitialiser-mot-de-passe") {
+      if (rateLimited(req, "reset-confirm", 10, 10 * 60 * 1000)) return sendJson(res, { ok: false, error: "Trop de tentatives, réessayez plus tard." }, 429);
+      if (!sameOriginOk(req)) return sendJson(res, { ok: false, error: "Origine invalide." }, 403);
+      const body = await readJsonBody(req);
+      const result = authPages.apiReinitialiser(body);
+      if (result.error) return sendJson(res, { ok: false, error: result.error }, 400);
+      return sendJson(res, { ok: true, redirect: "/connexion" });
+    }
+
     // ---------- onboarding (candidat connecté) ----------
     if (pathname.startsWith("/onboarding") || pathname.startsWith("/api/onboarding")) {
       if (!requireAuth(["candidate"])) return redirect(res, "/connexion");
@@ -267,7 +296,23 @@ async function handle(req, res) {
       const result = dashboard.apiReagir(user, id, body);
       return sendJson(res, result.error ? { ok: false, error: result.error } : { ok: true });
     }
-    if (pathname.startsWith("/tableau-de-bord/photo/") && req.method === "GET") {
+    if (pathname === "/tableau-de-bord/messages" && req.method === "GET") {
+      if (!requireAuth(["candidate"])) return redirect(res, "/connexion");
+      return sendHtml(res, dashboard.messagesPage(user));
+    }
+    if (pathname === "/api/tableau-de-bord/messages" && req.method === "POST") {
+      if (!requireAuth(["candidate"])) return sendJson(res, { ok: false, error: "Non autorisé." }, 401);
+      const body = await readJsonBody(req);
+      const result = dashboard.apiEnvoyerMessageMembre(user, body);
+      return sendJson(res, result.error ? { ok: false, error: result.error } : { ok: true, redirect: "/tableau-de-bord/messages" });
+    }
+    if (/^\/api\/notifications\/[^/]+\/ouvrir$/.test(pathname) && req.method === "GET") {
+      if (!requireAuth(["candidate"])) return redirect(res, "/connexion");
+      const notifId = pathname.split("/")[3];
+      const link = dashboard.apiOuvrirNotification(user, notifId);
+      return redirect(res, link || "/tableau-de-bord");
+    }
+        if (pathname.startsWith("/tableau-de-bord/photo/") && req.method === "GET") {
       if (!requireAuth(["candidate"])) return redirect(res, "/connexion");
       const propId = pathname.split("/")[3];
       const db = load();
@@ -292,6 +337,7 @@ async function handle(req, res) {
       if (req.method === "GET" && pathname === "/admin") return sendHtml(res, admin.adminDashboardPage(user));
       if (req.method === "GET" && pathname === "/admin/profils") return sendHtml(res, admin.adminProfilsPage(user, query));
       if (req.method === "GET" && pathname === "/admin/propositions") return sendHtml(res, admin.adminPropositionsPage(user, query));
+      if (req.method === "GET" && pathname === "/admin/messages") return sendHtml(res, admin.adminMessagesPage(user));
 
       if (req.method === "GET" && pathname.startsWith("/admin/profils/")) {
         const id = pathname.split("/")[3];
@@ -302,8 +348,8 @@ async function handle(req, res) {
         const criteria = db.criteria.find((c) => c.userId === id);
         const documents = db.documents.filter((d) => d.userId === id);
         const notes = [...db.notes.filter((n) => n.userId === id)].reverse();
-        const suggestions = admin.buildSuggestions(target, id);
-        return sendHtml(res, admin.adminProfilDetailPage(user, target, profile, criteria, documents, notes, suggestions));
+        const analysis = buildProfileAnalysis(id);
+        return sendHtml(res, admin.adminProfilDetailPage(user, target, profile, criteria, documents, notes, analysis));
       }
 
       if (req.method === "GET" && pathname.startsWith("/admin/documents/")) {
@@ -329,7 +375,18 @@ async function handle(req, res) {
         const result = admin.apiAjouterNote(user, id, body);
         return sendJson(res, result.error ? { ok: false, error: result.error } : { ok: true });
       }
-      if (req.method === "POST" && pathname === "/api/admin/propositions") {
+      if (req.method === "POST" && /\/api\/admin\/profils\/[^/]+\/message$/.test(pathname)) {
+        const id = pathname.split("/")[4];
+        const body = await readJsonBody(req);
+        const result = admin.apiEnvoyerMessageAdmin(user, id, body);
+        return sendJson(res, result.error ? { ok: false, error: result.error } : { ok: true });
+      }
+      if (req.method === "POST" && /\/api\/admin\/profils\/[^/]+\/analyse$/.test(pathname)) {
+        const id = pathname.split("/")[4];
+        const result = admin.apiAnalyserProfil(user, id);
+        return sendJson(res, result.error ? { ok: false, error: result.error } : { ok: true, html: result.html });
+      }
+            if (req.method === "POST" && pathname === "/api/admin/propositions") {
         const body = await readJsonBody(req);
         const result = admin.apiCreerProposition(user, body);
         return sendJson(res, result.error ? { ok: false, error: result.error } : { ok: true });
@@ -388,7 +445,7 @@ function ensureAdmin() {
         id: uid("user"),
         role: "admin",
         prenom: "Administrateur",
-        nom: "Chidoukhim",
+        nom: "Tipat Mazal",
         sexe: "H",
         email,
         telephone: "",
@@ -405,5 +462,5 @@ function ensureAdmin() {
 ensureAdmin();
 
 server.listen(PORT, () => {
-  console.log(`Chidoukhim — serveur démarré sur http://localhost:${PORT}`);
+  console.log(`Tipat Mazal — serveur démarré sur http://localhost:${PORT}`);
 });

@@ -1,10 +1,14 @@
 "use strict";
-const { layout, esc } = require("../render");
+const { layout, esc, timeAgo } = require("../render");
 const { load, withDb, uid } = require("../db");
 const { logAudit } = require("../auth");
-const { age, computeCompatibility, rankCandidates, NIVEAU_RELIGIEUX_LABELS } = require("../matching");
+const { age, computeCompatibility, rankCandidates, streamLabelList, streamCodes } = require("../matching");
 const { notify } = require("../notify");
 const { clampStr } = require("../validators");
+const { STREAMS } = require("../data/religiousStreams");
+const { buildProfileAnalysis } = require("../aiAnalysis");
+const { QUICK_MESSAGES, threadForUser, sendFromAdmin } = require("../messages");
+const { createNotification } = require("../notifications");
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -18,6 +22,13 @@ const STATUT_ADMIN_LABELS = {
   valide: "Validé",
   refuse: "Refusé",
   suspendu: "Suspendu",
+};
+
+const STATUT_NOTIF_MESSAGES = {
+  valide: "Bonne nouvelle : votre dossier a été validé par notre équipe.",
+  refuse: "Votre dossier a été examiné. Contactez l'équipe pour plus d'informations.",
+  suspendu: "Votre dossier a été temporairement suspendu par l'équipe.",
+  en_attente_validation: "Votre dossier a été repassé en attente de validation.",
 };
 
 function statusBadge(status, labels) {
@@ -61,7 +72,7 @@ function adminDashboardPage(user) {
   <div class="ai-panel fade-up delay-1" style="margin-bottom:32px">
     <span class="ai-badge">✦ Analyse IA</span>
     <h3>Le moteur de compatibilité en un coup d'œil</h3>
-    <p>Synthèse des scores calculés par le moteur explicable sur l'ensemble des compatibilités proposées.</p>
+    <p>Synthèse des scores calculés par le moteur explicable sur l'ensemble des compatibilités proposées. L'intelligence artificielle assiste le Shadkhan — elle ne décide jamais à sa place.</p>
     <div class="ai-metric-grid">
       <div class="ai-metric"><div class="num">${avgScore}%</div><div class="lbl">Score moyen</div></div>
       <div class="ai-metric"><div class="num">${highScore}</div><div class="lbl">Compatibilités ≥ 75%</div></div>
@@ -126,11 +137,12 @@ function adminProfilsPage(user, query) {
       <td>${u.sexe === "H" ? "Homme" : "Femme"}</td>
       <td>${p ? (age(p.dateNaissance) || "—") : "—"}</td>
       <td>${p ? esc(p.ville) : "—"}</td>
+      <td>${p ? esc(streamLabelList(streamCodes(p)).join(", ")) : "—"}</td>
       <td>${statusBadge(u.status)}</td>
       <td>${fmtDate(u.createdAt)}</td>
       <td><a href="/admin/profils/${u.id}" class="btn btn-sm btn-outline">Ouvrir</a></td>
     </tr>`;
-  }).join("") || `<tr><td colspan="7" class="muted" style="text-align:center;padding:30px">Aucun résultat.</td></tr>`;
+  }).join("") || `<tr><td colspan="8" class="muted" style="text-align:center;padding:30px">Aucun résultat.</td></tr>`;
 
   const body = `
   <div class="admin-toolbar fade-up">
@@ -147,7 +159,7 @@ function adminProfilsPage(user, query) {
     </form>
   </div>
   <table class="data-table fade-up delay-1">
-    <thead><tr><th>Nom</th><th>Sexe</th><th>Âge</th><th>Ville</th><th>Statut</th><th>Créé le</th><th></th></tr></thead>
+    <thead><tr><th>Nom</th><th>Sexe</th><th>Âge</th><th>Ville</th><th>Courant(s)</th><th>Statut</th><th>Créé le</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
   return layout({ title: "Profils", body, user, active: "profils", noindex: true });
@@ -158,7 +170,54 @@ function infoItem(k, v) {
   return `<div class="info-item"><div class="k">${esc(k)}</div><div class="v">${esc(v) || "—"}</div></div>`;
 }
 
-function adminProfilDetailPage(user, target, profile, criteria, documents, notes, suggestions) {
+function renderAnalysisPanel(target, analysis) {
+  if (!analysis) return '<p class="muted">Dossier incomplet — analyse indisponible.</p>';
+  const ringCirc = 2 * Math.PI * 24;
+  const suggestionsHtml = analysis.suggestions.map((s) => `
+    <div class="candidate-row">
+      <div class="score-ring">
+        <svg width="56" height="56" viewBox="0 0 56 56">
+          <circle class="bg" cx="28" cy="28" r="24" fill="none" stroke-width="5"></circle>
+          <circle class="fg" cx="28" cy="28" r="24" fill="none" stroke-width="5" stroke-dasharray="${ringCirc.toFixed(1)}" stroke-dashoffset="${(ringCirc * (1 - s.score / 100)).toFixed(1)}"></circle>
+        </svg>
+        <div class="val">${s.score}%</div>
+      </div>
+      <div style="flex:1">
+        <strong>${esc(s.profile.prenom)}</strong> · ${age(s.profile.dateNaissance) || "—"} ans · ${esc(s.profile.ville)} · ${esc(streamLabelList(streamCodes(s.profile)).join(", "))}
+        <ul class="explanation-list">
+          ${s.explanation.slice(0, 4).map((e) => `<li>${esc(e)}</li>`).join("")}
+          ${s.warnings.slice(0, 2).map((w) => `<li class="warning-list">${esc(w)}</li>`).join("")}
+        </ul>
+      </div>
+      <div style="text-align:right">
+        <button class="btn btn-gold btn-sm" onclick="proposer('${s.profile.userId}')">Proposer</button>
+      </div>
+    </div>`).join("") || '<p class="muted">Aucun profil validé de sexe opposé à comparer pour le moment.</p>';
+
+  return `
+    <div class="ai-inline-block">
+      <div class="ai-completion"><div class="ai-completion-bar"><div style="width:${analysis.completion}%"></div></div><span>${analysis.completion}% du dossier exploité par l'IA</span></div>
+      <h4>Résumé de personnalité</h4>
+      <p>${esc(analysis.summary)}</p>
+      <div class="ai-cols">
+        <div>
+          <h4>✓ Points forts</h4>
+          <ul class="explanation-list">${analysis.strengths.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>
+        </div>
+        <div>
+          <h4>⚠ Points d'attention</h4>
+          <ul class="explanation-list warning-list">${analysis.attention.length ? analysis.attention.map((s) => `<li>${esc(s)}</li>`).join("") : '<li style="list-style:none;padding-left:0">Aucune alerte particulière.</li>'}</ul>
+        </div>
+      </div>
+      <h4>Conseils pour le Shadkhan</h4>
+      <ul class="explanation-list">${analysis.advice.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>
+    </div>
+    <div class="divider"></div>
+    <h4 style="margin-bottom:14px">Compatibilités recommandées</h4>
+    ${suggestionsHtml}`;
+}
+
+function adminProfilDetailPage(user, target, profile, criteria, documents, notes, analysis) {
   const p = profile || {};
   const c = criteria || {};
 
@@ -178,27 +237,14 @@ function adminProfilDetailPage(user, target, profile, criteria, documents, notes
       <div class="meta">${fmtDate(n.createdAt)}</div>
     </div>`).join("") || '<p class="muted">Aucune note pour le moment.</p>';
 
-  const ringCirc = 2 * Math.PI * 24;
-  const suggestionsHtml = suggestions.map((s) => `
-    <div class="candidate-row">
-      <div class="score-ring">
-        <svg width="56" height="56" viewBox="0 0 56 56">
-          <circle class="bg" cx="28" cy="28" r="24" fill="none" stroke-width="5"></circle>
-          <circle class="fg" cx="28" cy="28" r="24" fill="none" stroke-width="5" stroke-dasharray="${ringCirc.toFixed(1)}" stroke-dashoffset="${(ringCirc * (1 - s.score / 100)).toFixed(1)}"></circle>
-        </svg>
-        <div class="val">${s.score}%</div>
-      </div>
-      <div style="flex:1">
-        <strong>${esc(s.profile.prenom)}</strong> · ${age(s.profile.dateNaissance) || "—"} ans · ${esc(s.profile.ville)} · ${esc(NIVEAU_RELIGIEUX_LABELS[s.profile.niveauReligieux] || s.profile.niveauReligieux)}
-        <ul class="explanation-list">
-          ${s.explanation.slice(0, 4).map((e) => `<li>${esc(e)}</li>`).join("")}
-          ${s.warnings.slice(0, 2).map((w) => `<li class="warning-list">${esc(w)}</li>`).join("")}
-        </ul>
-      </div>
-      <div style="text-align:right">
-        <button class="btn btn-gold btn-sm" onclick="proposer('${s.profile.userId}')">Proposer</button>
-      </div>
-    </div>`).join("") || '<p class="muted">Aucun profil validé de sexe opposé à comparer pour le moment.</p>';
+  const thread = threadForUser(target.id);
+  const threadHtml = thread.map((m) => `
+    <div class="msg-bubble ${m.from === "admin" ? "msg-out" : "msg-in"}" style="max-width:100%">
+      <div class="msg-text">${esc(m.text)}</div>
+      <div class="msg-time">${m.from === "admin" ? "Vous" : esc(target.prenom)} · ${esc(timeAgo(m.createdAt))}</div>
+    </div>`).join("") || '<p class="muted">Aucun échange pour le moment.</p>';
+
+  const quickOptions = QUICK_MESSAGES.map((q) => `<option value="${esc(q)}">${esc(q)}</option>`).join("");
 
   const body = `
     <div class="section-title-row fade-up">
@@ -235,7 +281,7 @@ function adminProfilDetailPage(user, target, profile, criteria, documents, notes
             ${infoItem("Minhag", p.minhag)}
             ${infoItem("Profession", p.profession)}
             ${infoItem("Études", p.etudes)}
-            ${infoItem("Niveau religieux", NIVEAU_RELIGIEUX_LABELS[p.niveauReligieux] || p.niveauReligieux)}
+            ${infoItem("Courant(s) religieux", streamLabelList(streamCodes(p)).join(", ") + (p.courantAutre ? ` (${p.courantAutre})` : ""))}
             ${infoItem("Yéchiva / séminaire", p.yeshiva)}
             ${infoItem("Rav de référence", p.ravReference)}
             ${infoItem("Situation familiale", p.situationFamiliale)}
@@ -260,7 +306,7 @@ function adminProfilDetailPage(user, target, profile, criteria, documents, notes
           <div class="info-list">
             ${infoItem("Âge souhaité", [c.ageMin, c.ageMax].filter(Boolean).join(" - "))}
             ${infoItem("Taille souhaitée", [c.tailleMin, c.tailleMax].filter(Boolean).join(" - "))}
-            ${infoItem("Niveau religieux souhaité", NIVEAU_RELIGIEUX_LABELS[c.niveauReligieux] || c.niveauReligieux)}
+            ${infoItem("Courant(s) souhaité(s)", streamLabelList(streamCodes(c)).join(", ") || "Peu importe")}
             ${infoItem("Origine souhaitée", c.origine)}
             ${infoItem("Communauté souhaitée", c.communaute)}
             ${infoItem("Déménagement accepté", c.demenagement)}
@@ -275,9 +321,12 @@ function adminProfilDetailPage(user, target, profile, criteria, documents, notes
           </div>
         </div>
 
-        <div class="card">
-          <h3>Compatibilités suggérées par l'IA</h3>
-          <div id="suggestions">${suggestionsHtml}</div>
+        <div class="card" id="analyse-ia">
+          <div class="section-title-row" style="margin-bottom:18px">
+            <h3 style="margin:0"><span class="sec-ic" style="display:inline-flex;vertical-align:middle;margin-right:8px">✦</span>Analyse IA</h3>
+            <button class="btn btn-gold btn-sm" id="btn-analyser" onclick="lancerAnalyse()">Trouver les meilleures compatibilités</button>
+          </div>
+          <div id="analyse-container">${renderAnalysisPanel(target, analysis)}</div>
         </div>
       </div>
 
@@ -290,6 +339,23 @@ function adminProfilDetailPage(user, target, profile, criteria, documents, notes
             <button class="btn btn-outline btn-sm" data-confirm="Suspendre ce dossier ?" onclick="changerStatut('suspendu')">⏸ Suspendre</button>
             ${target.status !== "en_attente_validation" ? `<button class="btn btn-outline btn-sm" onclick="changerStatut('en_attente_validation')">↺ Repasser en attente</button>` : ""}
           </div>
+        </div>
+
+        <div class="card" style="margin-bottom:22px" id="messagerie">
+          <h3>✉ Message au membre</h3>
+          <p class="muted tiny" style="margin-top:-6px">Seul l'administrateur peut écrire à un membre — jamais l'inverse entre deux membres.</p>
+          <div class="msg-thread" style="max-height:240px;margin-bottom:14px">${threadHtml}</div>
+          <form class="js-form" data-endpoint="/api/admin/profils/${target.id}/message" data-redirect="/admin/profils/${target.id}#messagerie">
+            <div class="field">
+              <label>Message rapide</label>
+              <select id="quick-select" onchange="document.querySelector('#messagerie textarea[name=text]').value=this.value">
+                <option value="">— Choisir un message type —</option>
+                ${quickOptions}
+              </select>
+            </div>
+            <div class="field"><textarea name="text" placeholder="Votre message…" required></textarea></div>
+            <button type="submit" class="btn btn-primary btn-sm btn-block">Envoyer le message</button>
+          </form>
         </div>
 
         <div class="card" style="margin-bottom:22px">
@@ -330,6 +396,16 @@ function adminProfilDetailPage(user, target, profile, criteria, documents, notes
     const json = await res.json();
     if (json.ok) { toast('Proposition créée.', 'success'); window.location.href = '/admin/propositions'; } else toast(json.error || 'Erreur', 'error');
   }
+  async function lancerAnalyse() {
+    const btn = document.getElementById('btn-analyser');
+    btn.disabled = true; const label = btn.textContent; btn.textContent = 'Analyse en cours…';
+    try {
+      const res = await fetch('/api/admin/profils/${target.id}/analyse', { method:'POST' });
+      const json = await res.json();
+      if (json.ok) { document.getElementById('analyse-container').innerHTML = json.html; if (window.animateScoreRings) window.animateScoreRings(); toast('Analyse mise à jour.', 'success'); }
+      else toast(json.error || 'Erreur', 'error');
+    } finally { btn.disabled = false; btn.textContent = label; }
+  }
   </script>`;
   return layout({ title: `${target.prenom} ${target.nom}`, body, user, active: "profils", noindex: true });
 }
@@ -345,7 +421,15 @@ function apiChangerStatut(admin, targetUserId, body) {
     t.status = body.statut;
   });
   logAudit(admin.id, `Statut du dossier changé en "${body.statut}"`, targetUserId, `${target.prenom} ${target.nom}`);
-  notify.email(target.email, "Mise à jour de votre dossier", `Le statut de votre dossier a changé : ${body.statut}.`);
+  createNotification(targetUserId, {
+    type: "statut",
+    title: "Mise à jour de votre dossier",
+    body: STATUT_NOTIF_MESSAGES[body.statut] || `Le statut de votre dossier a changé : ${body.statut}.`,
+    link: "/tableau-de-bord",
+    toEmail: target.email,
+    emailSubject: "Mise à jour de votre dossier Tipat Mazal",
+    emailBody: STATUT_NOTIF_MESSAGES[body.statut] || `Le statut de votre dossier a changé : ${body.statut}.`,
+  });
   return { ok: true };
 }
 
@@ -363,6 +447,21 @@ function apiAjouterNote(admin, targetUserId, body) {
   });
   logAudit(admin.id, "Note privée ajoutée", targetUserId, body.tag || "");
   return { ok: true };
+}
+
+function apiEnvoyerMessageAdmin(admin, targetUserId, body) {
+  const result = sendFromAdmin(admin, targetUserId, body);
+  if (!result.error) logAudit(admin.id, "Message envoyé au membre", targetUserId, (body.text || "").slice(0, 80));
+  return result;
+}
+
+function apiAnalyserProfil(admin, targetUserId) {
+  const db = load();
+  const target = db.users.find((u) => u.id === targetUserId && u.role === "candidate");
+  if (!target) return { error: "Dossier introuvable." };
+  const analysis = buildProfileAnalysis(targetUserId);
+  logAudit(admin.id, "Analyse IA relancée", targetUserId, "");
+  return { ok: true, html: renderAnalysisPanel(target, analysis) };
 }
 
 function apiCreerProposition(admin, body) {
@@ -402,6 +501,17 @@ function apiCreerProposition(admin, body) {
     return p;
   });
   logAudit(admin.id, "Proposition de compatibilité créée", prop.id, `${userA.prenom} × ${userB.prenom} (${result.score}%)`);
+  [userA, userB].forEach((u) => {
+    createNotification(u.id, {
+      type: "proposition",
+      title: "Nouvelle proposition de compatibilité",
+      body: `Une compatibilité (${result.score}%) a été identifiée pour vous.`,
+      link: "/tableau-de-bord",
+      toEmail: u.email,
+      emailSubject: "Nouvelle proposition de compatibilité",
+      emailBody: `Une nouvelle proposition de compatibilité (${result.score}%) est disponible dans votre espace.`,
+    });
+  });
   return { ok: true, proposition: prop };
 }
 
@@ -518,24 +628,47 @@ function apiPartagerPhoto(admin, propId, body) {
   return { ok: true };
 }
 
-function buildSuggestions(target, targetUserId) {
+// ---------- Messagerie (vue d'ensemble admin) ----------
+function adminMessagesPage(user) {
   const db = load();
-  const profileA = db.profiles.find((p) => p.userId === targetUserId);
-  const criteriaA = db.criteria.find((c) => c.userId === targetUserId);
-  if (!profileA) return [];
-  const pool = db.users
-    .filter((u) => u.role === "candidate" && u.status === "valide" && u.id !== targetUserId && u.sexe !== target.sexe)
-    .map((u) => ({
-      profile: { ...(db.profiles.find((p) => p.userId === u.id) || {}), userId: u.id, prenom: u.prenom },
-      criteria: db.criteria.find((c) => c.userId === u.id) || {},
-    }))
-    .filter((x) => x.profile && x.profile.dateNaissance);
-  return rankCandidates({ ...profileA, userId: targetUserId }, criteriaA || {}, pool, 5);
+  const candidats = db.users.filter((u) => u.role === "candidate");
+  const rows = candidats
+    .map((u) => {
+      const thread = threadForUser(u.id);
+      if (!thread.length) return null;
+      const last = thread[thread.length - 1];
+      const unread = thread.filter((m) => m.from === "user").length; // simple indicateur d'activité membre
+      return { u, last, count: thread.length, unread };
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.last.createdAt) - new Date(a.last.createdAt));
+
+  const items = rows.map(({ u, last, count }) => `
+    <a href="/admin/profils/${u.id}#messagerie" class="card card-hover fade-up" style="display:flex;gap:16px;align-items:center;margin-bottom:12px">
+      <div class="card-icon" style="margin-bottom:0">✉</div>
+      <div style="flex:1;min-width:0">
+        <strong>${esc(u.prenom)} ${esc(u.nom)}</strong>
+        <div class="muted tiny" style="margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${last.from === "admin" ? "Vous : " : ""}${esc(last.text)}</div>
+      </div>
+      <div class="muted tiny">${count} message${count > 1 ? "s" : ""} · ${esc(timeAgo(last.createdAt))}</div>
+    </a>`).join("") || `<div class="empty-state"><div class="ei">✉</div>Aucune conversation pour le moment. Écrivez depuis la fiche d'un membre.</div>`;
+
+  const body = `
+  <div class="section-title-row fade-up"><h2 style="margin:0">Messagerie</h2></div>
+  <p class="muted" style="margin-top:-10px">Seul l'administrateur peut initier une conversation avec un membre. Les membres ne peuvent jamais s'écrire entre eux.</p>
+  ${items}`;
+  return layout({ title: "Messagerie", body, user, active: "messages", noindex: true });
+}
+
+function buildSuggestions(target, targetUserId) {
+  const analysis = buildProfileAnalysis(targetUserId);
+  return analysis ? analysis.suggestions : [];
 }
 
 module.exports = {
   adminDashboardPage, adminProfilsPage, adminProfilDetailPage,
   apiChangerStatut, apiAjouterNote, apiCreerProposition,
   adminPropositionsPage, apiChangerStatutProposition, apiPartagerPhoto,
-  buildSuggestions,
+  buildSuggestions, apiEnvoyerMessageAdmin, apiAnalyserProfil, adminMessagesPage,
+  renderAnalysisPanel,
 };
