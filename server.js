@@ -34,6 +34,7 @@ const onboarding = require("./src/pages/onboarding");
 const dashboard = require("./src/pages/dashboard");
 const admin = require("./src/pages/admin");
 const { buildProfileAnalysis } = require("./src/aiAnalysis");
+const { trackVisit, getVisitStats } = require("./src/visits");
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -149,6 +150,8 @@ async function handle(req, res) {
   if (req.method === "GET" && (pathname === "/style.css" || pathname === "/app.js" || pathname === "/favicon.ico")) {
     if (serveStatic(req, res, pathname)) return;
   }
+
+  trackVisit(req, res, pathname);
 
   const auth = getCurrentUser(req);
   const user = auth ? auth.user : null;

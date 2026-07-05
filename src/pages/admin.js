@@ -9,6 +9,7 @@ const { STREAMS } = require("../data/religiousStreams");
 const { buildProfileAnalysis } = require("../aiAnalysis");
 const { QUICK_MESSAGES, threadForUser, sendFromAdmin } = require("../messages");
 const { createNotification } = require("../notifications");
+const { getVisitStats } = require("../visits");
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -48,6 +49,7 @@ function adminDashboardPage(user) {
   const matchs = propositions.filter((p) => p.status === "match_mutuel").length;
 
   const recentLogs = [...db.auditLogs].reverse().slice(0, 12);
+  const visits = getVisitStats(db);
 
   // ---- Analyse IA agrégée ----
   const scores = propositions.map((p) => p.score).filter((s) => typeof s === "number");
@@ -67,6 +69,33 @@ function adminDashboardPage(user) {
   const body = `
   <div class="stat-grid fade-up">
     ${statCards.map((s) => `<div class="stat-card"><div class="card-icon" style="margin-bottom:10px">${s.icon}</div><div class="num">${s.num}</div><div class="label">${esc(s.label)}</div></div>`).join("")}
+  </div>
+
+  <div class="card fade-up" style="margin-bottom:32px">
+    <div class="section-title-row" style="margin-bottom:14px">
+      <div>
+        <div class="eyebrow" style="margin-bottom:4px">Trafic</div>
+        <h3 style="margin:0">Fréquentation du site</h3>
+      </div>
+      <div class="muted tiny">Comptage anonyme (aucune IP conservée)</div>
+    </div>
+    <div class="ai-metric-grid" style="margin-bottom:18px">
+      <div class="ai-metric ai-metric-light"><div class="num">${visits.todayViews}</div><div class="lbl">Vues aujourd'hui · ${visits.todayUnique} visiteur(s)</div></div>
+      <div class="ai-metric ai-metric-light"><div class="num">${visits.last7Views}</div><div class="lbl">Vues 7 derniers jours · ${visits.last7Unique} visiteurs</div></div>
+      <div class="ai-metric ai-metric-light"><div class="num">${visits.last30Views}</div><div class="lbl">Vues 30 derniers jours · ${visits.last30Unique} visiteurs</div></div>
+      <div class="ai-metric ai-metric-light"><div class="num">${visits.totalViews}</div><div class="lbl">Total des vues</div></div>
+      <div class="ai-metric ai-metric-light"><div class="num">${visits.lifetimeUniqueVisitors}</div><div class="lbl">Visiteurs uniques (total)</div></div>
+    </div>
+    <div class="visit-chart">
+      ${(() => {
+        const max = Math.max(1, ...visits.series.map((d) => d.views));
+        return visits.series.map((d) => {
+          const h = Math.round((d.views / max) * 100);
+          const label = new Date(d.date + "T00:00:00Z").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+          return `<div class="visit-bar-wrap" title="${esc(label)} — ${d.views} vue(s)"><div class="visit-bar" style="height:${Math.max(h, 3)}%"></div><span class="visit-bar-label">${label.slice(0, 2)}</span></div>`;
+        }).join("");
+      })()}
+    </div>
   </div>
 
   <div class="ai-panel fade-up delay-1" style="margin-bottom:32px">

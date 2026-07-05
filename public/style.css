@@ -577,6 +577,56 @@ table.data-table tr:hover td { background: var(--bg-soft); }
 .ai-metric .num { font-size:1.5rem; font-weight:700; color:#fff; }
 .ai-metric .lbl { font-size:.74rem; color: rgba(255,255,255,0.6); text-transform:uppercase; letter-spacing:.04em; margin-top:2px; }
 
+.ai-metric-light { background: var(--bg-soft); border: 1px solid var(--line-soft); }
+.ai-metric-light .num { color: var(--ink, #1a1a1a); }
+.ai-metric-light .lbl { color: var(--muted-2); }
+
+.visit-chart { display:flex; align-items:flex-end; gap:6px; height:96px; padding-top:8px; }
+.visit-bar-wrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:6px; }
+.visit-bar { width:100%; max-width:22px; background: linear-gradient(180deg, var(--gold) 0%, var(--brand) 100%); border-radius:4px 4px 2px 2px; transition: height .3s ease; }
+.visit-bar-label { font-size:.62rem; color: var(--muted-2); text-transform:uppercase; }
+
+/* Bandeau défilant — engagements réels de la plateforme, jamais des statistiques inventées */
+.marquee-wrap {
+  width: 100%;
+  overflow: hidden;
+  background: var(--brand-dark);
+  padding: 13px 0;
+  position: relative;
+}
+.marquee-wrap::before, .marquee-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 60px;
+  z-index: 2;
+  pointer-events: none;
+}
+.marquee-wrap::before { left: 0; background: linear-gradient(90deg, var(--brand-dark), transparent); }
+.marquee-wrap::after { right: 0; background: linear-gradient(270deg, var(--brand-dark), transparent); }
+.marquee-track { display: flex; width: max-content; animation: marquee-scroll 34s linear infinite; }
+.marquee-wrap:hover .marquee-track { animation-play-state: paused; }
+.marquee-group { display: flex; align-items: center; flex-shrink: 0; }
+.marquee-item {
+  color: rgba(255,255,255,0.88);
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  padding: 0 28px;
+  border-right: 1px solid rgba(255,255,255,0.14);
+}
+@keyframes marquee-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track { animation: none; }
+  .marquee-wrap { overflow-x: auto; }
+}
+
+
+
 /* ---------- AI analysis, inline variant (fiche profil admin) ---------- */
 .ai-inline-block h4 { color: var(--ink); }
 .ai-completion { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }

@@ -36,6 +36,13 @@ function landingPage(user) {
     </div>
   </section>
 
+  <div class="marquee-wrap fade-up" aria-hidden="false">
+    <div class="marquee-track">
+      <div class="marquee-group"><span class="marquee-item">✦ Vérification d'identité obligatoire</span><span class="marquee-item">✦ Aucune photo jamais publique</span><span class="marquee-item">✦ Aucune recherche libre par les membres</span><span class="marquee-item">✦ Intelligence artificielle explicable</span><span class="marquee-item">✦ Décision humaine finale sur chaque mise en relation</span><span class="marquee-item">✦ Messagerie encadrée par l'administrateur</span><span class="marquee-item">✦ Confidentialité totale du dossier</span></div>
+      <div class="marquee-group" aria-hidden="true"><span class="marquee-item">✦ Vérification d'identité obligatoire</span><span class="marquee-item">✦ Aucune photo jamais publique</span><span class="marquee-item">✦ Aucune recherche libre par les membres</span><span class="marquee-item">✦ Intelligence artificielle explicable</span><span class="marquee-item">✦ Décision humaine finale sur chaque mise en relation</span><span class="marquee-item">✦ Messagerie encadrée par l'administrateur</span><span class="marquee-item">✦ Confidentialité totale du dossier</span></div>
+    </div>
+  </div>
+
   <div class="value-band fade-up">
     <div><div class="num">100%</div><div class="label">Profils confidentiels</div></div>
     <div><div class="num">0</div><div class="label">Photo publique</div></div>

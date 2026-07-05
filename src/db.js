@@ -24,6 +24,7 @@ function emptyDb() {
     passwordResets: [],         // jetons de réinitialisation de mot de passe
     messages: [],                 // messagerie interne admin <-> membre (par conversation userId)
     notifications: [],             // centre de notifications des membres
+    visitStats: { lifetimeUniqueVisitors: 0, days: {} }, // fréquentation du site (agrégée par jour)
   };
 }
 
@@ -44,7 +45,15 @@ function load() {
     // migration douce : s'assurer que toutes les collections existent
     const base = emptyDb();
     for (const key of Object.keys(base)) {
-      if (!Array.isArray(cache[key])) cache[key] = base[key];
+      if (Array.isArray(base[key])) {
+        if (!Array.isArray(cache[key])) cache[key] = base[key];
+      } else if (typeof base[key] === "object" && base[key] !== null) {
+        if (typeof cache[key] !== "object" || cache[key] === null || Array.isArray(cache[key])) {
+          cache[key] = base[key];
+        }
+      } else if (cache[key] === undefined) {
+        cache[key] = base[key];
+      }
     }
   }
   return cache;
