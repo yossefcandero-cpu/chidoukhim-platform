@@ -182,6 +182,15 @@
   document.addEventListener("input", (e) => revalidateOne(e.target));
   document.addEventListener("change", (e) => revalidateOne(e.target));
 
+  // Désactive la validation native du navigateur sur nos formulaires : c'est
+  // notre validateForm() (surlignage rouge) qui doit avoir la main, pas les
+  // bulles natives incohérentes avec nos champs personnalisés (combobox, etc.)
+  function disableNativeValidation() {
+    document.querySelectorAll("form.js-form").forEach((f) => f.setAttribute("novalidate", ""));
+  }
+  disableNativeValidation();
+  document.addEventListener("DOMContentLoaded", disableNativeValidation);
+
   async function handleSubmit(e) {
     const form = e.target;
     if (!form.classList.contains("js-form")) return;
