@@ -10,6 +10,8 @@ const { buildProfileAnalysis } = require("../aiAnalysis");
 const { QUICK_MESSAGES, threadForUser, sendFromAdmin } = require("../messages");
 const { createNotification } = require("../notifications");
 const { getVisitStats } = require("../visits");
+const { historyForUser, fieldLabel } = require("../history");
+const { SimplePdf } = require("../pdf");
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -50,6 +52,21 @@ function adminDashboardPage(user) {
 
   const recentLogs = [...db.auditLogs].reverse().slice(0, 12);
   const visits = getVisitStats(db);
+
+  // ---- Entonnoir d'acquisition ----
+  const nbComptes = candidats.length;
+  const nbVerifies = candidats.filter((u) => u.emailVerified && u.phoneVerified).length;
+  const nbDossierComplet = candidats.filter((u) => db.profiles.some((p) => p.userId === u.id) && db.criteria.some((c) => c.userId === u.id)).length;
+  const nbValides = counts.valide || 0;
+  const pct = (num, den) => (den > 0 ? Math.round((num / den) * 100) : 0);
+  const funnel = [
+    { label: "Visiteurs uniques", num: visits.lifetimeUniqueVisitors, rate: null },
+    { label: "Comptes créés", num: nbComptes, rate: pct(nbComptes, visits.lifetimeUniqueVisitors) },
+    { label: "Identité vérifiée", num: nbVerifies, rate: pct(nbVerifies, nbComptes) },
+    { label: "Dossier complété", num: nbDossierComplet, rate: pct(nbDossierComplet, nbVerifies) },
+    { label: "Dossier validé", num: nbValides, rate: pct(nbValides, nbDossierComplet) },
+  ];
+  const funnelMax = Math.max(1, ...funnel.map((f) => f.num));
 
   // ---- Analyse IA agrégée ----
   const scores = propositions.map((p) => p.score).filter((s) => typeof s === "number");
@@ -98,6 +115,26 @@ function adminDashboardPage(user) {
     </div>
   </div>
 
+  <div class="card fade-up" style="margin-bottom:32px">
+    <div class="section-title-row" style="margin-bottom:14px">
+      <div>
+        <div class="eyebrow" style="margin-bottom:4px">Acquisition</div>
+        <h3 style="margin:0">Entonnoir : du visiteur au dossier validé</h3>
+      </div>
+      <button type="button" class="btn btn-sm btn-outline" id="btn-relancer">Relancer les dossiers incomplets</button>
+    </div>
+    <div class="funnel-list">
+      ${funnel.map((f, i) => `
+        <div class="funnel-row">
+          <div class="funnel-label">${esc(f.label)}</div>
+          <div class="funnel-bar-wrap"><div class="funnel-bar" style="width:${Math.max(Math.round((f.num / funnelMax) * 100), f.num > 0 ? 4 : 0)}%"></div></div>
+          <div class="funnel-num">${f.num}</div>
+          <div class="funnel-rate">${f.rate === null ? "" : `${f.rate}%`}</div>
+        </div>`).join("")}
+    </div>
+    <p class="muted tiny" style="margin-top:10px">Taux calculé par rapport à l'étape précédente. Les visiteurs uniques sont comptés depuis la mise en place du suivi de fréquentation.</p>
+  </div>
+
   <div class="ai-panel fade-up delay-1" style="margin-bottom:32px">
     <span class="ai-badge">✦ Analyse IA</span>
     <h3>Le moteur de compatibilité en un coup d'œil</h3>
@@ -138,7 +175,28 @@ function adminDashboardPage(user) {
         ${recentLogs.map((l) => `<div class="note-item"><div>${esc(l.action)}</div><div class="meta">${fmtDate(l.createdAt)} · ${esc(l.details || "")}</div></div>`).join("") || '<p class="muted">Aucune action enregistrée.</p>'}
       </div>
     </div>
-  </div>`;
+  </div>
+  <script>
+    (function () {
+      const btn = document.getElementById('btn-relancer');
+      if (!btn) return;
+      btn.addEventListener('click', async () => {
+        btn.disabled = true; btn.textContent = 'Envoi en cours...';
+        try {
+          const res = await fetch('/api/admin/relances', { method: 'POST' });
+          const json = await res.json();
+          if (json.ok) {
+            toast(json.count > 0 ? (json.count + ' membre(s) relance(s).') : 'Aucun dossier a relancer pour le moment.', 'success');
+          } else {
+            toast(json.error || 'Erreur', 'error');
+          }
+        } catch (e) {
+          toast('Impossible de contacter le serveur.', 'error');
+        }
+        btn.disabled = false; btn.textContent = 'Relancer les dossiers incomplets';
+      });
+    })();
+  </script>`;
   return layout({ title: "Administration", body, user, active: "admin", noindex: true });
 }
 
@@ -154,10 +212,25 @@ function adminProfilsPage(user, query) {
   }
   if (query.statut) candidats = candidats.filter((u) => u.status === query.statut);
   if (query.sexe) candidats = candidats.filter((u) => u.sexe === query.sexe);
+  if (query.courant) {
+    candidats = candidats.filter((u) => {
+      const pr = db.profiles.find((p) => p.userId === u.id);
+      return pr && streamCodes(pr).includes(query.courant);
+    });
+  }
+  const villeQ = (query.ville || "").toLowerCase().trim();
+  if (villeQ) {
+    candidats = candidats.filter((u) => {
+      const pr = db.profiles.find((p) => p.userId === u.id);
+      return pr && pr.ville && pr.ville.toLowerCase().includes(villeQ);
+    });
+  }
   candidats.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   const options = Object.entries(STATUT_ADMIN_LABELS)
     .map(([v, l]) => `<option value="${v}" ${query.statut === v ? "selected" : ""}>${esc(l)}</option>`).join("");
+  const courantOptions = STREAMS
+    .map((s) => `<option value="${esc(s.code)}" ${query.courant === s.code ? "selected" : ""}>${esc(s.label)}</option>`).join("");
 
   const rows = candidats.map((u) => {
     const p = db.profiles.find((pr) => pr.userId === u.id);
@@ -184,7 +257,10 @@ function adminProfilsPage(user, query) {
         <option value="H" ${query.sexe === "H" ? "selected" : ""}>Hommes</option>
         <option value="F" ${query.sexe === "F" ? "selected" : ""}>Femmes</option>
       </select>
+      <select name="courant" onchange="this.form.submit()"><option value="">Tous courants</option>${courantOptions}</select>
+      <div class="admin-search"><input type="text" name="ville" placeholder="Ville…" value="${esc(query.ville || "")}" /></div>
       <button class="btn btn-sm btn-outline" type="submit">Filtrer</button>
+      ${(query.q || query.statut || query.sexe || query.courant || query.ville) ? '<a href="/admin/profils" class="btn btn-sm btn-outline">Réinitialiser</a>' : ''}
     </form>
   </div>
   <table class="data-table fade-up delay-1">
@@ -225,7 +301,8 @@ function renderAnalysisPanel(target, analysis) {
 
   return `
     <div class="ai-inline-block">
-      <div class="ai-completion"><div class="ai-completion-bar"><div style="width:${analysis.completion}%"></div></div><span>${analysis.completion}% du dossier exploité par l'IA</span></div>
+      <div class="ai-completion"><div class="ai-completion-bar"><div style="width:${analysis.completion}%"></div></div><span>${analysis.completion}% du dossier exploité par l'IA</span>${analysis.llmEnhanced ? '<span class="llm-badge" title="Résumé, points forts/attention et conseils générés par un modèle de langage à partir du texte du dossier">✦ Enrichi par IA générative</span>' : ''}</div>
+      ${analysis.llmError ? `<p class="muted tiny" style="margin:-4px 0 10px">IA générative indisponible pour le moment (repli sur l'analyse heuristique) — ${esc(analysis.llmError)}</p>` : ''}
       <h4>Résumé de personnalité</h4>
       <p>${esc(analysis.summary)}</p>
       <div class="ai-cols">
@@ -249,6 +326,7 @@ function renderAnalysisPanel(target, analysis) {
 function adminProfilDetailPage(user, target, profile, criteria, documents, notes, analysis) {
   const p = profile || {};
   const c = criteria || {};
+  const history = historyForUser(load(), target.id, 20);
 
   const docThumbs = documents.map((d) => {
     const label = d.type === "piece_identite" ? "Pièce d'identité" : d.type === "selfie" ? "Selfie" : "Photo";
@@ -278,7 +356,10 @@ function adminProfilDetailPage(user, target, profile, criteria, documents, notes
   const body = `
     <div class="section-title-row fade-up">
       <h2 style="margin:0">${esc(target.prenom)} ${esc(target.nom)} ${statusBadge(target.status)}</h2>
-      <a href="/admin/profils" class="muted">← Retour à la liste</a>
+      <div style="display:flex;gap:14px;align-items:center">
+        <a href="/admin/profils/${target.id}/pdf" class="btn btn-outline btn-sm">⬇ Télécharger en PDF</a>
+        <a href="/admin/profils" class="muted">← Retour à la liste</a>
+      </div>
     </div>
 
     <div class="detail-grid fade-up delay-1">
@@ -392,6 +473,19 @@ function adminProfilDetailPage(user, target, profile, criteria, documents, notes
           ${docThumbs}
         </div>
 
+        <div class="card" style="margin-bottom:22px">
+          <h3>Historique des modifications</h3>
+          ${history.length ? history.map((h) => `
+            <div class="note-item">
+              <div><strong>${h.section === "profil" ? "Dossier personnel" : "Profil recherché"}</strong> modifié</div>
+              <ul class="explanation-list" style="margin-top:6px">
+                ${h.changes.slice(0, 6).map((ch) => `<li>${esc(fieldLabel(ch.field))} : ${ch.oldValue ? `« ${esc(ch.oldValue.slice(0,60))}${ch.oldValue.length>60?"…":""} »` : "<em>vide</em>"} → « ${esc(ch.newValue.slice(0,60))}${ch.newValue.length>60?"…":""} »</li>`).join("")}
+                ${h.changes.length > 6 ? `<li class="muted">+ ${h.changes.length - 6} autre(s) champ(s) modifié(s)</li>` : ""}
+              </ul>
+              <div class="meta">${fmtDate(h.changedAt)}</div>
+            </div>`).join("") : '<p class="muted">Aucune modification enregistrée depuis la création du dossier.</p>'}
+        </div>
+
         <div class="card">
           <h3>Notes privées (admin uniquement)</h3>
           <form class="js-form" data-endpoint="/api/admin/profils/${target.id}/notes" data-redirect="/admin/profils/${target.id}">
@@ -484,11 +578,11 @@ function apiEnvoyerMessageAdmin(admin, targetUserId, body) {
   return result;
 }
 
-function apiAnalyserProfil(admin, targetUserId) {
+async function apiAnalyserProfil(admin, targetUserId) {
   const db = load();
   const target = db.users.find((u) => u.id === targetUserId && u.role === "candidate");
   if (!target) return { error: "Dossier introuvable." };
-  const analysis = buildProfileAnalysis(targetUserId);
+  const analysis = await buildProfileAnalysis(targetUserId);
   logAudit(admin.id, "Analyse IA relancée", targetUserId, "");
   return { ok: true, html: renderAnalysisPanel(target, analysis) };
 }
@@ -689,9 +783,86 @@ function adminMessagesPage(user) {
   return layout({ title: "Messagerie", body, user, active: "messages", noindex: true });
 }
 
-function buildSuggestions(target, targetUserId) {
-  const analysis = buildProfileAnalysis(targetUserId);
+async function buildSuggestions(target, targetUserId) {
+  const analysis = await buildProfileAnalysis(targetUserId);
   return analysis ? analysis.suggestions : [];
+}
+
+// ---------- Export PDF de la fiche candidat ----------
+function buildProfilePdf(target, profile, criteria, documents) {
+  const p = profile || {};
+  const c = criteria || {};
+  const pdf = new SimplePdf();
+
+  pdf.heading("Tipat Mazal — Fiche candidat");
+  pdf.addText(`Document confidentiel — usage interne uniquement — généré le ${fmtDate(new Date().toISOString())}`, { size: 8.5, gap: 12 });
+  pdf.addRule();
+
+  pdf.subheading("Identité & contact");
+  pdf.labelValue("Prénom", target.prenom);
+  pdf.labelValue("Sexe", target.sexe === "H" ? "Homme" : "Femme");
+  pdf.labelValue("Statut du dossier", STATUT_ADMIN_LABELS[target.status] || target.status);
+  pdf.labelValue("E-mail vérifié", target.emailVerified ? "Oui" : "Non");
+  pdf.labelValue("Téléphone vérifié", target.phoneVerified ? "Oui" : "Non");
+  pdf.labelValue("Inscrit le", fmtDate(target.createdAt));
+
+  pdf.subheading("Dossier personnel");
+  pdf.labelValue("Âge", age(p.dateNaissance) ? `${age(p.dateNaissance)} ans` : "");
+  pdf.labelValue("Taille", p.taille ? `${p.taille} cm` : "");
+  pdf.labelValue("Poids", p.poids ? `${p.poids} kg` : "");
+  pdf.labelValue("Langues parlées", p.langues);
+  pdf.labelValue("Ville / Pays", [p.ville, p.pays].filter(Boolean).join(" / "));
+  pdf.labelValue("Origine", p.origine);
+  pdf.labelValue("Communauté", p.communaute);
+  pdf.labelValue("Minhag", p.minhag);
+  pdf.labelValue("Courant(s) religieux", streamLabelList(streamCodes(p)).join(", "));
+  pdf.labelValue("Profession", p.profession);
+  pdf.labelValue("Études", p.etudes);
+  pdf.labelValue("Yéchiva / séminaire", p.yeshiva);
+  pdf.labelValue("Rav de référence", p.ravReference);
+  pdf.labelValue("Situation familiale", p.situationFamiliale);
+  pdf.labelValue("Enfants", p.enfants);
+  pdf.labelValue("État de santé", p.etatSante);
+  pdf.labelValue("Volonté de déménager", p.demenagement);
+
+  pdf.subheading("Personnalité et aspirations");
+  pdf.labelValue("Personnalité", p.personnalite);
+  pdf.labelValue("Qualités", p.qualites);
+  pdf.labelValue("Défauts", p.defauts);
+  pdf.labelValue("Centres d'intérêt", p.centresInteret);
+  pdf.labelValue("Objectifs de vie", p.objectifsVie);
+  pdf.labelValue("Aspirations spirituelles", p.aspirationsSpirituelles);
+  if (p.questionOuverte1) pdf.labelValue("Parcours", p.questionOuverte1);
+  if (p.questionOuverte2) pdf.labelValue("Attentes du mariage", p.questionOuverte2);
+
+  pdf.addRule();
+  pdf.subheading("Profil recherché");
+  pdf.labelValue("Âge souhaité", [c.ageMin, c.ageMax].filter(Boolean).join(" - "));
+  pdf.labelValue("Taille souhaitée", [c.tailleMin, c.tailleMax].filter(Boolean).join(" - "));
+  pdf.labelValue("Courant(s) souhaité(s)", streamLabelList(streamCodes(c)).join(", ") || "Peu importe");
+  pdf.labelValue("Origine souhaitée", c.origine);
+  pdf.labelValue("Communauté souhaitée", c.communaute);
+  pdf.labelValue("Déménagement accepté", c.demenagement);
+  pdf.labelValue("Profession recherchée", c.profession);
+  pdf.labelValue("Études recherchées", c.etudes);
+  pdf.labelValue("Traits recherchés", c.traitsRecherches);
+  pdf.labelValue("Critères indispensables", c.criteresIndispensables);
+  pdf.labelValue("Critères secondaires", c.criteresSecondaires);
+  pdf.labelValue("Critères rédhibitoires", c.criteresRedhibitoires);
+
+  pdf.addRule();
+  pdf.subheading("Documents déposés");
+  if (documents && documents.length) {
+    documents.forEach((d) => {
+      const label = d.type === "piece_identite" ? "Pièce d'identité" : d.type === "selfie" ? "Selfie" : "Photo";
+      pdf.addText(`- ${label} (déposé le ${fmtDate(d.createdAt)})`, { size: 10, gap: 3 });
+    });
+    pdf.addText("Les documents eux-mêmes restent consultables uniquement depuis l'espace administrateur (jamais inclus dans ce PDF).", { size: 8.5, gap: 4 });
+  } else {
+    pdf.addText("Aucun document déposé.", { size: 10 });
+  }
+
+  return pdf.build();
 }
 
 module.exports = {
@@ -699,5 +870,5 @@ module.exports = {
   apiChangerStatut, apiAjouterNote, apiCreerProposition,
   adminPropositionsPage, apiChangerStatutProposition, apiPartagerPhoto,
   buildSuggestions, apiEnvoyerMessageAdmin, apiAnalyserProfil, adminMessagesPage,
-  renderAnalysisPanel,
+  renderAnalysisPanel, buildProfilePdf,
 };

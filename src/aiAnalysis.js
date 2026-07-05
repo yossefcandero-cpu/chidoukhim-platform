@@ -6,6 +6,7 @@
 const { age, tokenize, streamLabelList, streamCodes } = require("./matching");
 const { load } = require("./db");
 const { rankCandidates } = require("./matching");
+const { isLlmEnabled, callClaude, extractJson } = require("./llm");
 
 const POSITIVE_HINTS = [
   ["calme", "Semble apprécier la sérénité et l'équilibre"],
@@ -64,7 +65,7 @@ function personalitySummary(profile) {
   return parts.join(" ");
 }
 
-function buildProfileAnalysis(targetUserId) {
+function buildHeuristicAnalysis(targetUserId) {
   const db = load();
   const target = db.users.find((u) => u.id === targetUserId);
   const profile = db.profiles.find((p) => p.userId === targetUserId);
@@ -116,7 +117,83 @@ function buildProfileAnalysis(targetUserId) {
     attention,
     suggestions,
     advice,
+    llmEnhanced: false,
+    profile,
   };
+}
+
+// Prépare un prompt strictement borné aux données réellement présentes dans
+// le dossier — aucune invention, jamais de photo ni de donnée d'identité
+// (nom/prénom/coordonnées) envoyée au modèle, uniquement le contenu textuel
+// du dossier utile à une analyse de personnalité.
+function buildLlmPrompt(profile, heuristic) {
+  const fields = [
+    ["Personnalité", profile.personnalite],
+    ["Qualités", profile.qualites],
+    ["Défauts", profile.defauts],
+    ["Centres d'intérêt", profile.centresInteret],
+    ["Objectifs de vie", profile.objectifsVie],
+    ["Aspirations spirituelles", profile.aspirationsSpirituelles],
+    ["Parcours (question ouverte 1)", profile.questionOuverte1],
+    ["Attentes du mariage (question ouverte 2)", profile.questionOuverte2],
+  ].filter(([, v]) => v && String(v).trim());
+
+  if (!fields.length) return null;
+
+  const dossier = fields.map(([label, v]) => `${label} : ${v}`).join(String.fromCharCode(10));
+
+  return `Tu assistes un Shadkhan (marieur/marieuse) au sein d'une plateforme de rencontres matrimoniales sérieuse (Tipat Mazal), respectueuse des valeurs religieuses juives. Tu n'es jamais montré aux membres : tes conclusions n'aident QUE l'administrateur humain, qui garde toujours la décision finale.
+
+Voici les réponses textuelles d'un dossier candidat (aucune donnée d'identité ne t'est communiquée) :
+${dossier}
+
+Analyse uniquement ce texte, sans rien inventer ni supposer au-delà de ce qui est écrit. Réponds UNIQUEMENT avec un objet JSON valide (rien autour), avec exactement ces clés :
+{
+  "summary": "résumé de personnalité en 2-3 phrases, en français, ton neutre et bienveillant",
+  "strengths": ["point fort 1", "point fort 2", "..."],
+  "attention": ["point de vigilance 1 (ton factuel, jamais jugeant)", "..."],
+  "advice": ["conseil concret pour le Shadkhan 1", "..."]
+}
+Limite chaque tableau à 4 éléments maximum. N'invente aucun fait non présent dans le texte fourni.`;
+}
+
+async function buildProfileAnalysis(targetUserId) {
+  const heuristic = buildHeuristicAnalysis(targetUserId);
+  if (!heuristic) return null;
+  if (!heuristic.profile || !isLlmEnabled()) {
+    delete heuristic.profile;
+    return heuristic;
+  }
+
+  try {
+    const prompt = buildLlmPrompt(heuristic.profile, heuristic);
+    if (!prompt) {
+      delete heuristic.profile;
+      return heuristic;
+    }
+    const text = await callClaude({
+      system: "Tu réponds strictement en JSON valide, sans aucun texte avant ou après. Tu ne remplaces jamais la décision humaine du Shadkhan, tu l'assistes seulement.",
+      prompt,
+      maxTokens: 700,
+    });
+    const parsed = extractJson(text);
+    delete heuristic.profile;
+    if (!parsed || typeof parsed !== "object") return heuristic;
+
+    return {
+      ...heuristic,
+      summary: typeof parsed.summary === "string" && parsed.summary.trim() ? parsed.summary.trim() : heuristic.summary,
+      strengths: Array.isArray(parsed.strengths) && parsed.strengths.length ? parsed.strengths.slice(0, 4) : heuristic.strengths,
+      attention: Array.isArray(parsed.attention) && parsed.attention.length ? parsed.attention.slice(0, 4) : heuristic.attention,
+      advice: Array.isArray(parsed.advice) && parsed.advice.length ? parsed.advice.slice(0, 4) : heuristic.advice,
+      llmEnhanced: true,
+    };
+  } catch (err) {
+    // Ne casse jamais la page : repli silencieux sur l'analyse heuristique.
+    delete heuristic.profile;
+    heuristic.llmError = String((err && err.message) || err).slice(0, 160);
+    return heuristic;
+  }
 }
 
 module.exports = { buildProfileAnalysis };

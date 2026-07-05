@@ -54,6 +54,61 @@
   --ease: cubic-bezier(.2,.7,.2,1);
 }
 
+/* Mode sombre — mêmes tokens sémantiques, valeurs adaptées. Le vert/or de
+   marque reste identique pour préserver l'identité visuelle. */
+html[data-theme="dark"] {
+  --ink: #eef1f4;
+  --ink-2: #d4d9e0;
+  --muted: #a3aab5;
+  --muted-2: #7c8390;
+  --line: #2b323d;
+  --line-soft: #232932;
+  --bg: #12161c;
+  --bg-soft: #171c23;
+  --bg-soft-2: #1c222a;
+  --surface: #1a1f27;
+
+  --brand-soft: #16332a;
+  --gold-soft: #322a15;
+
+  --success-soft: #123322;
+  --warning-soft: #33260f;
+  --danger-soft: #3a1c19;
+  --info-soft: #172a42;
+  --plum-soft: #241c37;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.32), 0 1px 2px rgba(0,0,0,.2);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.36), 0 2px 6px rgba(0,0,0,.2);
+  --shadow-lg: 0 24px 64px -12px rgba(0, 0, 0, 0.5);
+}
+html[data-theme="dark"] img,
+html[data-theme="dark"] .doc-thumb img {
+  filter: brightness(0.92) contrast(1.02);
+}
+html[data-theme="dark"] .app-sidebar,
+html[data-theme="dark"] .hero-motif {
+  filter: none;
+}
+
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  transition: background .15s ease, transform .15s ease;
+}
+.theme-toggle:hover { background: var(--bg-soft-2); transform: translateY(-1px); }
+
+
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
@@ -654,6 +709,50 @@ table.data-table tr:hover td { background: var(--bg-soft); }
   gap: 5px;
 }
 .field-invalid-msg::before { content: "⚠"; }
+
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--brand);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.link-btn:hover { color: var(--gold-strong); }
+.link-btn:disabled { color: var(--muted-2); cursor: default; text-decoration: none; }
+
+.llm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--gold-soft);
+  color: var(--gold-strong);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  margin-left: 10px;
+}
+
+.funnel-list { display: flex; flex-direction: column; gap: 10px; }
+.funnel-row { display: grid; grid-template-columns: 150px 1fr 50px 46px; align-items: center; gap: 12px; }
+.funnel-label { font-size: 0.82rem; color: var(--ink-2); font-weight: 600; }
+.funnel-bar-wrap { background: var(--bg-soft-2); border-radius: 999px; height: 14px; overflow: hidden; }
+.funnel-bar { height: 100%; background: linear-gradient(90deg, var(--brand), var(--gold)); border-radius: 999px; transition: width .5s ease; }
+.funnel-num { font-weight: 700; text-align: right; font-size: 0.86rem; }
+.funnel-rate { color: var(--muted-2); font-size: 0.76rem; text-align: right; }
+@media (max-width: 640px) {
+  .funnel-row { grid-template-columns: 100px 1fr 40px 40px; gap: 8px; }
+  .funnel-label { font-size: 0.74rem; }
+}
+
+
+
 
 
 

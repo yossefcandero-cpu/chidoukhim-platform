@@ -35,6 +35,7 @@ const dashboard = require("./src/pages/dashboard");
 const admin = require("./src/pages/admin");
 const { buildProfileAnalysis } = require("./src/aiAnalysis");
 const { trackVisit, getVisitStats } = require("./src/visits");
+const { runReminderSweep } = require("./src/reminders");
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -128,6 +129,7 @@ function sameOriginOk(req) {
 const MIME = {
   ".css": "text/css", ".js": "application/javascript", ".svg": "image/svg+xml",
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".ico": "image/x-icon",
+  ".json": "application/manifest+json", ".webmanifest": "application/manifest+json",
 };
 function serveStatic(req, res, pathname) {
   const filePath = path.join(PUBLIC_DIR, pathname);
@@ -147,7 +149,8 @@ async function handle(req, res) {
   if (pathname.length > 1 && pathname.endsWith("/")) pathname = pathname.slice(0, -1);
   const query = Object.fromEntries(parsedUrl.searchParams.entries());
 
-  if (req.method === "GET" && (pathname === "/style.css" || pathname === "/app.js" || pathname === "/favicon.ico")) {
+  const STATIC_PATHS = ["/style.css", "/app.js", "/favicon.ico", "/manifest.json", "/sw.js", "/icon.svg", "/icon-maskable.svg"];
+  if (req.method === "GET" && STATIC_PATHS.includes(pathname)) {
     if (serveStatic(req, res, pathname)) return;
   }
 
@@ -342,7 +345,7 @@ async function handle(req, res) {
       if (req.method === "GET" && pathname === "/admin/propositions") return sendHtml(res, admin.adminPropositionsPage(user, query));
       if (req.method === "GET" && pathname === "/admin/messages") return sendHtml(res, admin.adminMessagesPage(user));
 
-      if (req.method === "GET" && pathname.startsWith("/admin/profils/")) {
+      if (req.method === "GET" && pathname.startsWith("/admin/profils/") && !pathname.endsWith("/pdf")) {
         const id = pathname.split("/")[3];
         const db = load();
         const target = db.users.find((u) => u.id === id && u.role === "candidate");
@@ -351,8 +354,26 @@ async function handle(req, res) {
         const criteria = db.criteria.find((c) => c.userId === id);
         const documents = db.documents.filter((d) => d.userId === id);
         const notes = [...db.notes.filter((n) => n.userId === id)].reverse();
-        const analysis = buildProfileAnalysis(id);
+        const analysis = await buildProfileAnalysis(id);
         return sendHtml(res, admin.adminProfilDetailPage(user, target, profile, criteria, documents, notes, analysis));
+      }
+
+      if (req.method === "GET" && /^\/admin\/profils\/[^/]+\/pdf$/.test(pathname)) {
+        const id = pathname.split("/")[3];
+        const db = load();
+        const target = db.users.find((u) => u.id === id && u.role === "candidate");
+        if (!target) return notFound(res, user);
+        const profile = db.profiles.find((p) => p.userId === id);
+        const criteria = db.criteria.find((c) => c.userId === id);
+        const documents = db.documents.filter((d) => d.userId === id);
+        const pdfBuffer = admin.buildProfilePdf(target, profile, criteria, documents);
+        res.writeHead(200, {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="fiche-${(target.prenom || "candidat").replace(/[^a-z0-9]+/gi, "-")}.pdf"`,
+          "Content-Length": pdfBuffer.length,
+          "Cache-Control": "no-store",
+        });
+        return res.end(pdfBuffer);
       }
 
       if (req.method === "GET" && pathname.startsWith("/admin/documents/")) {
@@ -386,10 +407,14 @@ async function handle(req, res) {
       }
       if (req.method === "POST" && /\/api\/admin\/profils\/[^/]+\/analyse$/.test(pathname)) {
         const id = pathname.split("/")[4];
-        const result = admin.apiAnalyserProfil(user, id);
+        const result = await admin.apiAnalyserProfil(user, id);
         return sendJson(res, result.error ? { ok: false, error: result.error } : { ok: true, html: result.html });
       }
-            if (req.method === "POST" && pathname === "/api/admin/propositions") {
+            if (req.method === "POST" && pathname === "/api/admin/relances") {
+        const result = runReminderSweep(user.id);
+        return sendJson(res, { ok: true, count: result.length });
+      }
+      if (req.method === "POST" && pathname === "/api/admin/propositions") {
         const body = await readJsonBody(req);
         const result = admin.apiCreerProposition(user, body);
         return sendJson(res, result.error ? { ok: false, error: result.error } : { ok: true });
@@ -467,3 +492,13 @@ ensureAdmin();
 server.listen(PORT, () => {
   console.log(`Tipat Mazal — serveur démarré sur http://localhost:${PORT}`);
 });
+
+// Relance automatique des dossiers incomplets/non vérifiés depuis plusieurs
+// jours : une passe peu après le démarrage, puis toutes les 6 heures.
+// N'interrompt jamais le serveur en cas d'erreur (best-effort).
+setTimeout(() => {
+  try { runReminderSweep(); } catch (e) { console.error("Relance automatique — erreur :", e.message); }
+}, 60 * 1000);
+setInterval(() => {
+  try { runReminderSweep(); } catch (e) { console.error("Relance automatique — erreur :", e.message); }
+}, 6 * 60 * 60 * 1000);

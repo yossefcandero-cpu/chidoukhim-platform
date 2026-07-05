@@ -182,6 +182,38 @@
   document.addEventListener("input", (e) => revalidateOne(e.target));
   document.addEventListener("change", (e) => revalidateOne(e.target));
 
+  // ---------- mode sombre ----------
+  function applyThemeIcon() {
+    const btn = document.getElementById("theme-toggle-btn");
+    if (!btn) return;
+    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+    btn.textContent = isDark ? "☀" : "🌙";
+  }
+  function initThemeToggle() {
+    applyThemeIcon();
+    const btn = document.getElementById("theme-toggle-btn");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+      if (isDark) {
+        document.documentElement.removeAttribute("data-theme");
+        try { localStorage.setItem("tm-theme", "light"); } catch (e) {}
+      } else {
+        document.documentElement.setAttribute("data-theme", "dark");
+        try { localStorage.setItem("tm-theme", "dark"); } catch (e) {}
+      }
+      applyThemeIcon();
+    });
+  }
+  document.addEventListener("DOMContentLoaded", initThemeToggle);
+
+  // ---------- PWA : enregistrement du service worker ----------
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    });
+  }
+
   // Désactive la validation native du navigateur sur nos formulaires : c'est
   // notre validateForm() (surlignage rouge) qui doit avoir la main, pas les
   // bulles natives incohérentes avec nos champs personnalisés (combobox, etc.)

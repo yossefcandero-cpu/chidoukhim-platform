@@ -56,9 +56,19 @@ function headFragment(title, description, noindex) {
 <meta name="description" content="${esc(description || "Tipat Mazal — l'intelligence artificielle au service du Shadkhan. Une plateforme discrète de chidoukhim, entièrement pilotée par un accompagnement humain.")}" />
 ${noindex ? '<meta name="robots" content="noindex, nofollow" />' : ""}
 <link rel="icon" href="${FAVICON}" />
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#0d5b46" />
+<link rel="apple-touch-icon" href="/icon.svg" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Tipat Mazal" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700;800&family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css" />`;
+<link rel="stylesheet" href="/style.css" />
+<script>(function(){try{var t=localStorage.getItem("tm-theme");if(t==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}})();</script>`;
+}
+
+function themeToggleButton() {
+  return `<button type="button" class="theme-toggle" id="theme-toggle-btn" title="Basculer le thème clair/sombre" aria-label="Basculer le thème clair/sombre">🌙</button>`;
 }
 
 function notifBellFragment(user) {
@@ -90,7 +100,7 @@ function notifBellFragment(user) {
 function publicShell({ title, description, body, user, active, noindex }) {
   let nav;
   if (user && user.role === "admin") {
-    nav = `<a href="/admin">Administration</a><a href="/deconnexion">Déconnexion</a>`;
+    nav = `${themeToggleButton()}<a href="/admin">Administration</a><a href="/deconnexion">Déconnexion</a>`;
   } else if (user) {
     const db = load();
     const mCount = msgUnread(db, user.id);
@@ -98,9 +108,11 @@ function publicShell({ title, description, body, user, active, noindex }) {
         <a href="/tableau-de-bord" class="${active === "dashboard" ? "nav-active" : ""}">Mon espace</a>
         <a href="/tableau-de-bord/messages" class="${active === "messages" ? "nav-active" : ""}" style="position:relative">Messages${mCount ? `<span class="badge-count" style="position:absolute;top:-8px;right:-16px;background:var(--danger);color:#fff">${mCount}</span>` : ""}</a>
         ${notifBellFragment(user)}
+        ${themeToggleButton()}
         <a href="/deconnexion">Déconnexion</a>`;
   } else {
     nav = `
+        ${themeToggleButton()}
         <a href="/connexion">Connexion</a>
         <a href="/inscription" class="nav-cta">Créer un dossier</a>`;
   }
@@ -160,7 +172,10 @@ ${headFragment(title, description, noindex)}
   <div class="app-main">
     <header class="app-topbar">
       <h1>${esc(pageTitle)}</h1>
-      <div class="muted tiny">${esc(user.prenom || "Administrateur")}</div>
+      <div style="display:flex;align-items:center;gap:14px">
+        ${themeToggleButton()}
+        <div class="muted tiny">${esc(user.prenom || "Administrateur")}</div>
+      </div>
     </header>
     <div class="app-content">
 ${body}

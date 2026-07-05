@@ -5,6 +5,7 @@ const { genCode } = require("../auth");
 const { notify } = require("../notify");
 const { required, clampStr } = require("../validators");
 const { STREAMS } = require("../data/religiousStreams");
+const { recordChanges } = require("../history");
 const { COUNTRIES, CITIES } = require("../data/geo");
 const fs = require("fs");
 const path = require("path");
@@ -51,6 +52,7 @@ function verificationPage(user) {
                 <div id="email-code-zone" style="display:none;margin-top:14px">
                   <div class="field"><label>Code reçu par e-mail</label><input type="text" id="email-code" maxlength="6" /></div>
                   <button class="btn btn-primary btn-sm" id="btn-check-email" type="button">Valider</button>
+                  <button class="link-btn" id="email-resend-link" type="button" style="margin-left:10px">Vous n'avez pas reçu le code ? Renvoyer</button>
                 </div>
                 <div id="email-demo-note" class="muted" style="margin-top:8px"></div>
               </div>`
@@ -70,6 +72,7 @@ function verificationPage(user) {
                 <div id="phone-code-zone" style="display:none;margin-top:14px">
                   <div class="field"><label>Code reçu par SMS</label><input type="text" id="phone-code" maxlength="6" /></div>
                   <button class="btn btn-primary btn-sm" id="btn-check-phone" type="button">Valider</button>
+                  <button class="link-btn" id="phone-resend-link" type="button" style="margin-left:10px">Vous n'avez pas reçu le code ? Renvoyer</button>
                 </div>
                 <div id="phone-demo-note" class="muted" style="margin-top:8px"></div>
               </div>`
@@ -80,7 +83,7 @@ function verificationPage(user) {
     <a href="/onboarding/documents" class="btn btn-primary btn-block btn-lg" ${user.emailVerified && user.phoneVerified ? "" : "style=\"pointer-events:none;opacity:.5\""}>Continuer</a>
   </div>
   <script>
-  async function sendCode(canal, btnId, zoneId, noteId) {
+  async function sendCode(canal, btnId, zoneId, noteId, resendId) {
     const btn = document.getElementById(btnId);
     btn.disabled = true; btn.textContent = "Envoi…";
     const res = await fetch('/api/onboarding/envoyer-code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({canal}) });
@@ -90,6 +93,38 @@ function verificationPage(user) {
     if (json.devCode) { note.textContent = 'Mode démonstration (aucun fournisseur connecté) — code : ' + json.devCode; }
     else { note.textContent = 'Un code vous a été envoyé.'; }
     btn.disabled = false; btn.textContent = 'Renvoyer le code';
+    if (resendId) startResendCooldown(resendId, canal, btnId, zoneId, noteId);
+  }
+
+  function startResendCooldown(resendId, canal, btnId, zoneId, noteId) {
+    const link = document.getElementById(resendId);
+    if (!link) return;
+    let remaining = 30;
+    link.disabled = true;
+    const original = "Vous n'avez pas reçu le code ? Renvoyer";
+    link.textContent = 'Nouveau code possible dans ' + remaining + 's';
+    const timer = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(timer);
+        link.disabled = false;
+        link.textContent = original;
+      } else {
+        link.textContent = 'Nouveau code possible dans ' + remaining + 's';
+      }
+    }, 1000);
+    link.onclick = async () => {
+      if (link.disabled) return;
+      link.disabled = true;
+      link.textContent = 'Envoi…';
+      const res = await fetch('/api/onboarding/envoyer-code', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({canal}) });
+      const json = await res.json();
+      const note = document.getElementById(noteId);
+      if (json.devCode) { note.textContent = 'Mode démonstration (aucun fournisseur connecté) — code : ' + json.devCode; }
+      else { note.textContent = 'Un nouveau code vous a été envoyé.'; }
+      if (window.toast) toast('Code renvoyé.', 'success');
+      startResendCooldown(resendId, canal, btnId, zoneId, noteId);
+    };
   }
   async function checkCode(canal, inputId) {
     const code = document.getElementById(inputId).value.trim();
@@ -97,8 +132,8 @@ function verificationPage(user) {
     const json = await res.json();
     if (json.ok) { window.location.reload(); } else { toast(json.error || 'Code invalide', 'error'); }
   }
-  const be = document.getElementById('btn-send-email'); if (be) be.onclick = () => sendCode('email','btn-send-email','email-code-zone','email-demo-note');
-  const bp = document.getElementById('btn-send-phone'); if (bp) bp.onclick = () => sendCode('telephone','btn-send-phone','phone-code-zone','phone-demo-note');
+  const be = document.getElementById('btn-send-email'); if (be) be.onclick = () => sendCode('email','btn-send-email','email-code-zone','email-demo-note','email-resend-link');
+  const bp = document.getElementById('btn-send-phone'); if (bp) bp.onclick = () => sendCode('telephone','btn-send-phone','phone-code-zone','phone-demo-note','phone-resend-link');
   const ce = document.getElementById('btn-check-email'); if (ce) ce.onclick = () => checkCode('email','email-code');
   const cp = document.getElementById('btn-check-phone'); if (cp) cp.onclick = () => checkCode('telephone','phone-code');
   </script>`;
@@ -352,8 +387,10 @@ function apiProfil(user, body) {
   const courants = Array.isArray(body.courantsReligieux) ? body.courantsReligieux : (body.courantsReligieux ? [body.courantsReligieux] : []);
   if (!courants.length) return { error: "Merci de sélectionner au moins un courant religieux." };
 
+  const historyFields = [...PROFIL_FIELDS, "courantsReligieux"];
   withDb((db) => {
     let profile = db.profiles.find((p) => p.userId === user.id);
+    const before = profile ? { ...profile } : null;
     if (!profile) {
       profile = { userId: user.id, prenom: user.prenom, sexe: user.sexe };
       db.profiles.push(profile);
@@ -363,6 +400,7 @@ function apiProfil(user, body) {
     }
     profile.courantsReligieux = courants.filter((c) => typeof c === "string").slice(0, 20);
     profile.updatedAt = new Date().toISOString();
+    if (before) recordChanges(user.id, "profil", before, profile, historyFields);
   });
   return { ok: true };
 }
@@ -430,8 +468,10 @@ function apiRecherche(user, body) {
   const missing = required(body, ["ageMin", "ageMax"]);
   if (missing.length) return { error: "Merci de compléter au moins la tranche d'âge souhaitée." };
 
+  const historyFieldsCrit = [...CRITERIA_FIELDS, "courantsReligieux"];
   withDb((db) => {
     let crit = db.criteria.find((c) => c.userId === user.id);
+    const before = crit ? { ...crit } : null;
     if (!crit) {
       crit = { userId: user.id };
       db.criteria.push(crit);
@@ -441,6 +481,7 @@ function apiRecherche(user, body) {
     }
     const courants = Array.isArray(body.courantsReligieux) ? body.courantsReligieux : (body.courantsReligieux ? [body.courantsReligieux] : []);
     crit.courantsReligieux = courants.filter((c) => typeof c === "string").slice(0, 20);
+    if (before) recordChanges(user.id, "recherche", before, crit, historyFieldsCrit);
     const u = db.users.find((x) => x.id === user.id);
     if (u && u.status !== "valide" && u.status !== "refuse" && u.status !== "suspendu") {
       u.status = "en_attente_validation";

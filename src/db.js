@@ -25,6 +25,7 @@ function emptyDb() {
     messages: [],                 // messagerie interne admin <-> membre (par conversation userId)
     notifications: [],             // centre de notifications des membres
     visitStats: { lifetimeUniqueVisitors: 0, days: {} }, // fréquentation du site (agrégée par jour)
+    profileHistory: [], // historique des modifications de dossier (profil / recherche)
   };
 }
 
