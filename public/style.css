@@ -625,6 +625,37 @@ table.data-table tr:hover td { background: var(--bg-soft); }
   .marquee-wrap { overflow-x: auto; }
 }
 
+/* Champs obligatoires manquants — mise en évidence rouge */
+.field-invalid > label { color: var(--danger); }
+.field-invalid input:not([type="checkbox"]):not([type="radio"]),
+.field-invalid select,
+.field-invalid textarea,
+.field-invalid .combo-input {
+  border-color: var(--danger) !important;
+  background: var(--danger-soft);
+}
+.field-invalid .radio-group,
+.field-invalid.check-grid,
+.field-invalid .check-grid {
+  outline: 1px solid var(--danger);
+  outline-offset: 4px;
+  border-radius: var(--radius);
+}
+.field-invalid .file-drop {
+  border-color: var(--danger) !important;
+  background: var(--danger-soft);
+}
+.field-invalid-msg {
+  color: var(--danger);
+  font-size: 0.78rem;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.field-invalid-msg::before { content: "⚠"; }
+
+
 
 
 /* ---------- AI analysis, inline variant (fiche profil admin) ---------- */

@@ -231,13 +231,14 @@ function courantsCheckboxes(selected) {
     </label>`).join("");
 }
 
-function geoComboField(prefix, label, hint, currentValue) {
+function geoComboField(prefix, label, hint, currentValue, opts) {
+  const required = !opts || opts.required !== false;
   return `
   <div class="field">
     <label>${esc(label)}${hint ? ` <span class="hint">${esc(hint)}</span>` : ""}</label>
     <div class="combo" id="combo-${prefix}">
       <input type="text" id="${prefix}-search" class="combo-input" autocomplete="off" placeholder="Rechercher…" value="${esc(currentValue || "")}" />
-      <input type="hidden" name="${prefix}" id="${prefix}-value" value="${esc(currentValue || "")}" />
+      <input type="hidden" name="${prefix}" id="${prefix}-value" value="${esc(currentValue || "")}" ${required ? "required" : ""} />
       <div class="combo-panel" id="${prefix}-panel"></div>
     </div>
   </div>`;
@@ -278,7 +279,7 @@ function profilPage(user, profile, error) {
       <h3><span class="sec-ic">🕎</span>Courant(s) religieux</h3>
       <p class="muted" style="margin-top:-8px">Sélectionnez un ou plusieurs courants qui vous correspondent.</p>
       <div class="field">
-        <div class="check-grid">${courantsCheckboxes(p.courantsReligieux)}</div>
+        <div class="check-grid" data-required-group="courantsReligieux">${courantsCheckboxes(p.courantsReligieux)}</div>
       </div>
       <div class="field" id="courant-autre-field" style="display:${(p.courantsReligieux || []).includes("autre") ? "block" : "none"}">
         <label>Précisez votre courant</label>

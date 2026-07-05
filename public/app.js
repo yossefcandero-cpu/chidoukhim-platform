@@ -88,10 +88,108 @@
     box.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
+  // ---------- mise en évidence des champs obligatoires manquants ----------
+  function fieldWrapper(el) {
+    return el.closest(".field") || el.closest("[data-required-group]") || el.closest(".combo") || el.parentElement;
+  }
+
+  function markInvalid(wrapper, message) {
+    if (!wrapper) return;
+    wrapper.classList.add("field-invalid");
+    let msg = wrapper.querySelector(".field-invalid-msg");
+    if (!msg) {
+      msg = document.createElement("div");
+      msg.className = "field-invalid-msg";
+      wrapper.appendChild(msg);
+    }
+    msg.textContent = message || "Ce champ est obligatoire.";
+  }
+
+  function clearInvalid(wrapper) {
+    if (!wrapper) return;
+    wrapper.classList.remove("field-invalid");
+    const msg = wrapper.querySelector(".field-invalid-msg");
+    if (msg) msg.remove();
+  }
+
+  function validateForm(form) {
+    let ok = true;
+    let firstInvalid = null;
+
+    form.querySelectorAll(".field-invalid").forEach((w) => clearInvalid(w));
+
+    const flagInvalid = (wrapper, message) => {
+      ok = false;
+      markInvalid(wrapper, message);
+      if (!firstInvalid) firstInvalid = wrapper;
+    };
+
+    // champs texte / nombre / date / select / textarea / hidden (obligatoires)
+    form.querySelectorAll("[required]").forEach((el) => {
+      if (["radio", "checkbox", "file"].includes(el.type)) return;
+      if (!el.value || !String(el.value).trim()) {
+        flagInvalid(fieldWrapper(el), el.type === "hidden" ? "Merci de sélectionner une valeur." : "Ce champ est obligatoire.");
+      }
+    });
+
+    // fichiers obligatoires
+    form.querySelectorAll('input[type="file"][required]').forEach((el) => {
+      if (!el.files || !el.files.length) flagInvalid(fieldWrapper(el), "Merci d'ajouter un fichier.");
+    });
+
+    // groupes de boutons radio obligatoires (required sur au moins un des boutons du groupe)
+    const seenRadioNames = new Set();
+    form.querySelectorAll('input[type="radio"][required]').forEach((el) => {
+      if (seenRadioNames.has(el.name)) return;
+      seenRadioNames.add(el.name);
+      const group = form.querySelectorAll(`input[type="radio"][name="${el.name}"]`);
+      const checked = Array.from(group).some((r) => r.checked);
+      if (!checked) flagInvalid(fieldWrapper(el), "Merci de sélectionner une option.");
+    });
+
+    // groupes de cases à cocher obligatoires (au moins une case cochée)
+    form.querySelectorAll("[data-required-group]").forEach((container) => {
+      const checked = container.querySelectorAll('input[type="checkbox"]:checked').length > 0;
+      if (!checked) flagInvalid(container, "Sélectionnez au moins une option.");
+    });
+
+    if (firstInvalid) firstInvalid.scrollIntoView({ behavior: "smooth", block: "center" });
+    return ok;
+  }
+
+  function revalidateOne(el) {
+    if (!el || !el.closest) return;
+    const wrapper = fieldWrapper(el);
+    if (!wrapper || !wrapper.classList.contains("field-invalid")) return;
+    if (el.type === "checkbox" && wrapper.hasAttribute("data-required-group")) {
+      if (wrapper.querySelectorAll('input[type="checkbox"]:checked').length > 0) clearInvalid(wrapper);
+      return;
+    }
+    if (el.type === "radio") {
+      const form = el.closest("form");
+      const group = form ? form.querySelectorAll(`input[type="radio"][name="${el.name}"]`) : [];
+      if (Array.from(group).some((r) => r.checked)) clearInvalid(wrapper);
+      return;
+    }
+    if (el.type === "file") {
+      if (el.files && el.files.length) clearInvalid(wrapper);
+      return;
+    }
+    if (el.value && String(el.value).trim()) clearInvalid(wrapper);
+  }
+  window.tmRevalidateField = revalidateOne;
+
+  document.addEventListener("input", (e) => revalidateOne(e.target));
+  document.addEventListener("change", (e) => revalidateOne(e.target));
+
   async function handleSubmit(e) {
     const form = e.target;
     if (!form.classList.contains("js-form")) return;
     e.preventDefault();
+    if (!validateForm(form)) {
+      showError(form, "Merci de compléter les champs surlignés en rouge ci-dessous.");
+      return;
+    }
     const btn = form.querySelector('[type="submit"]');
     const endpoint = form.dataset.endpoint || form.action;
     const method = form.dataset.method || "POST";
@@ -182,6 +280,7 @@
             e.preventDefault();
             search.value = item.label;
             value.value = item.label;
+            revalidateOne(value);
             panel.classList.remove("open");
             if (onPick) onPick(item);
           });
@@ -268,7 +367,7 @@
     });
 
     if (villeAutreInput) {
-      villeAutreInput.addEventListener("input", () => { villeValue.value = villeAutreInput.value; });
+      villeAutreInput.addEventListener("input", () => { villeValue.value = villeAutreInput.value; revalidateOne(villeValue); });
     }
   };
 
